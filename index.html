@@ -161,13 +161,103 @@
                 </div>
             );
 
-            const Dashboard = () => {
+         const Dashboard = () => {
                 const isGuru = user.role === 'guru';
-                
+                // State untuk Tab Guru (Home / Add)
+                const [teacherTab, setTeacherTab] = useState('home'); 
+                // State untuk data Form Materi
+                const [formMateri, setFormMateri] = useState({ title: '', kelas: 'X', durasi: '', konten: '' });
+
                 const deleteSiswa = async (id) => {
                     if(confirm("Hapus siswa ini?")) await db.collection('users').doc(id).delete();
                 }
 
+                // Fungsi Simpan Materi Baru (Simulasi State Lokal)
+                const handleSaveMateri = () => {
+                    if(!formMateri.title) return alert("Judul wajib diisi!");
+                    
+                    // Buat ID baru yang unik
+                    const newId = formMateri.title.toLowerCase().replace(/\s+/g, '-');
+                    
+                    // Masukkan ke data sementara (modulData)
+                    // Catatan: Di versi HTML sederhana ini, data akan reset jika di-refresh. 
+                    // Agar permanen harus simpan ke Firestore (tapi kodenya akan sangat panjang).
+                    modulData[newId] = {
+                        id: newId,
+                        title: formMateri.title,
+                        kelas: [formMateri.kelas],
+                        durasi: formMateri.durasi + ' menit',
+                        konten: [{ judul: 'I. Pendahuluan', isi: formMateri.konten }]
+                    };
+                    
+                    alert("Materi Berhasil Disimpan! (Cek di menu siswa)");
+                    setTeacherTab('home'); // Kembali ke menu utama
+                };
+
+                // --- TAMPILAN FORM TAMBAH MATERI ---
+                if (isGuru && teacherTab === 'add') {
+                    return (
+                        <div className="min-h-screen bg-slate-50 p-4">
+                            <div className="max-w-2xl mx-auto bg-white rounded-3xl p-8 shadow-xl mt-10">
+                                <div className="flex items-center gap-4 mb-6">
+                                    <button onClick={()=>setTeacherTab('home')} className="p-2 hover:bg-slate-100 rounded-full font-bold text-slate-500">← Batal</button>
+                                    <h2 className="text-2xl font-black text-slate-800">Tambah Materi Baru</h2>
+                                </div>
+                                
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-500 mb-1">JUDUL MODUL</label>
+                                        <input 
+                                            className="w-full p-3 border rounded-xl bg-slate-50" 
+                                            placeholder="Contoh: Anti Korupsi"
+                                            onChange={(e) => setFormMateri({...formMateri, title: e.target.value})}
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-500 mb-1">KELAS</label>
+                                            <select 
+                                                className="w-full p-3 border rounded-xl bg-slate-50"
+                                                onChange={(e) => setFormMateri({...formMateri, kelas: e.target.value})}
+                                            >
+                                                <option value="X">Kelas X</option>
+                                                <option value="XI">Kelas XI</option>
+                                                <option value="XII">Kelas XII</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-bold text-slate-500 mb-1">DURASI (MENIT)</label>
+                                            <input 
+                                                type="number" 
+                                                className="w-full p-3 border rounded-xl bg-slate-50" 
+                                                placeholder="45"
+                                                onChange={(e) => setFormMateri({...formMateri, durasi: e.target.value})}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-500 mb-1">RINGKASAN MATERI</label>
+                                        <textarea 
+                                            className="w-full p-3 border rounded-xl bg-slate-50 h-32" 
+                                            placeholder="Tuliskan isi materi di sini..."
+                                            onChange={(e) => setFormMateri({...formMateri, konten: e.target.value})}
+                                        ></textarea>
+                                    </div>
+
+                                    {/* TOMBOL SIMPAN ADA DI SINI BAGINDA */}
+                                    <button 
+                                        onClick={handleSaveMateri}
+                                        className="w-full py-4 bg-slate-800 text-white font-bold rounded-2xl hover:bg-slate-900 shadow-lg mt-4 flex items-center justify-center gap-2"
+                                    >
+                                        💾 Simpan Materi
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                }
+
+                // --- TAMPILAN DASHBOARD UTAMA ---
                 return (
                     <div className="min-h-screen pb-10">
                         <nav className="bg-white p-4 border-b flex justify-between items-center sticky top-0 z-10">
@@ -190,14 +280,17 @@
 
                             {isGuru ? (
                                 <div className="space-y-8">
-                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                                        <div className="bg-white p-6 rounded-2xl border">
+                                    {/* MENU CEPAT GURU (TOMBOL TAMBAH MUNCUL DISINI) */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <button 
+                                            onClick={() => setTeacherTab('add')}
+                                            className="bg-slate-800 text-white p-6 rounded-2xl font-bold text-left hover:bg-slate-700 transition-all shadow-lg flex items-center gap-3"
+                                        >
+                                            <span className="text-2xl">+</span> Tambah Materi
+                                        </button>
+                                        <div className="bg-white p-6 rounded-2xl border flex flex-col justify-center">
                                             <div className="text-slate-400 text-xs font-bold uppercase">Total Siswa</div>
                                             <div className="text-3xl font-black">{dbUsers.filter(u=>u.role==='siswa').length}</div>
-                                        </div>
-                                        <div className="bg-white p-6 rounded-2xl border">
-                                            <div className="text-slate-400 text-xs font-bold uppercase">Modul</div>
-                                            <div className="text-3xl font-black">{Object.keys(modulData).length}</div>
                                         </div>
                                     </div>
 
@@ -211,7 +304,6 @@
                                                         <div className="text-xs text-slate-500">{s.kelas} {s.jurusan}</div>
                                                     </div>
                                                     <div className="flex gap-2 items-center">
-                                                        {/* Nilai Rata-rata */}
                                                         <span className="font-bold text-slate-700 bg-white px-2 py-1 rounded border">
                                                             {s.scores && Object.values(s.scores).length > 0 
                                                                 ? Math.round(Object.values(s.scores).reduce((a,b)=>a+b,0)/Object.values(s.scores).length) 
@@ -336,4 +428,5 @@
         root.render(<App />);
     </script>
 </body>
+
 </html>
