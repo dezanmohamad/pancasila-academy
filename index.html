@@ -8,6 +8,9 @@
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
+    <!-- SheetJS untuk Membaca Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    
     <!-- Babel untuk memproses JSX di browser -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
@@ -147,7 +150,7 @@
           ]
         };
 
-        // --- KOMPONEN LAYOUT (DIPINDAHKAN KELUAR APP UNTUK MENGHINDARI FLICKER) ---
+        // --- KOMPONEN LAYOUT ---
         const Layout = ({ children, notification, userData, handleLogout }) => (
             <div className="min-h-screen bg-slate-50 pb-20 font-sans text-slate-700 fade-in flex flex-col justify-between">
                 <div>
@@ -225,7 +228,7 @@
 
             // --- INIT AUTH & DATA ---
             useEffect(() => {
-                // Timeout logic jika loading terlalu lama (misal 10 detik)
+                // Timeout logic jika loading terlalu lama
                 const timer = setTimeout(() => {
                     if (loadingState) setLoadingTooLong(true);
                 }, 10000);
@@ -255,7 +258,7 @@
                 };
             }, []);
 
-            // --- FETCH DATA (Dipisah agar tidak blocking) ---
+            // --- FETCH DATA ---
             useEffect(() => {
                 if (!user || !db) return;
                 const userDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
@@ -289,7 +292,7 @@
             }, [user, userData]);
 
 
-            // --- HANDLERS (Sama seperti sebelumnya) ---
+            // --- HANDLERS ---
             const showNotif = (msg, type = 'success') => {
                 setNotification({ msg, type });
                 setTimeout(() => setNotification(null), 3000);
@@ -306,6 +309,62 @@
                     console.error("Logout Error:", error);
                     showNotif("Gagal Logout", "error");
                 }
+            };
+
+            // FITUR BARU: IMPORT/EXPORT EXCEL
+            const handleDownloadTemplate = () => {
+                // Membuat data dummy untuk template
+                const templateData = [
+                    { "Nama Lengkap": "Budi Santoso", "Username": "budi01", "Password": "123", "Kelas": "X", "Jurusan": "ULP" },
+                    { "Nama Lengkap": "Siti Aminah", "Username": "siti02", "Password": "123", "Kelas": "XI", "Jurusan": "PF" }
+                ];
+                // Menggunakan SheetJS untuk membuat workbook
+                const ws = XLSX.utils.json_to_sheet(templateData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Template Siswa");
+                // Download file Excel
+                XLSX.writeFile(wb, "Template_Import_Siswa.xlsx");
+            };
+
+            const handleImportSiswa = async (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                try {
+                    const data = await file.arrayBuffer();
+                    const workbook = XLSX.read(data);
+                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+                    let successCount = 0;
+                    for (const row of jsonData) {
+                        // Membaca data berdasarkan header di Excel
+                        const name = row['Nama Lengkap'];
+                        const username = row['Username'];
+                        // Default password jika kosong: 123456
+                        const password = row['Password'] ? String(row['Password']) : '123456';
+                        const kelas = row['Kelas'] || 'X';
+                        const jurusan = row['Jurusan'] || 'ULP';
+
+                        if (name && username) {
+                            const newId = 'student_' + Date.now() + Math.random().toString(36).substr(2, 5);
+                            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', newId), {
+                                name, username, password, kelas, jurusan,
+                                role: 'siswa',
+                                createdAt: new Date().toISOString(),
+                                scores: {}
+                            });
+                            successCount++;
+                        }
+                    }
+                    showNotif(`Berhasil mengimport ${successCount} siswa!`, "success");
+                } catch (err) {
+                    console.error("Import Error:", err);
+                    showNotif("Gagal membaca file Excel. Pastikan format benar.", "error");
+                }
+                
+                // Reset input file agar bisa digunakan lagi
+                if(fileInputRef.current) fileInputRef.current.value = "";
             };
 
             const handleRegister = async () => {
@@ -429,57 +488,6 @@
                 const link = document.createElement("a"); link.setAttribute("href", encodedUri); link.setAttribute("download", "rekap_nilai_pancasila_academy.csv"); document.body.appendChild(link); link.click(); document.body.removeChild(link);
             };
 
-            const handleDownloadTemplate = () => {
-                const header = "Nama Lengkap,Username,Password,Kelas,Jurusan\n";
-                const example = "Budi Santoso,budi123,123456,X,ULP\nSiti Aminah,siti_a,rahasia,XI,PF";
-                const csvContent = "data:text/csv;charset=utf-8," + header + example;
-                const encodedUri = encodeURI(csvContent);
-                const link = document.createElement("a");
-                link.setAttribute("href", encodedUri);
-                link.setAttribute("download", "template_import_siswa.csv");
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            };
-
-            const handleImportSiswa = (event) => {
-                const file = event.target.files[0];
-                if (!file) return;
-
-                const reader = new FileReader();
-                reader.onload = async (e) => {
-                    const text = e.target.result;
-                    const rows = text.split('\n').slice(1); // Skip header
-                    let successCount = 0;
-
-                    for (const row of rows) {
-                        const cols = row.split(',').map(s => s?.trim());
-                        if (cols.length >= 5) {
-                            const [name, username, password, kelas, jurusan] = cols;
-                            if (name && username && password) {
-                                // Add to firebase
-                                const newId = 'student_' + Date.now() + Math.random().toString(36).substr(2, 5);
-                                try {
-                                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', newId), {
-                                        name, username, password, kelas, jurusan,
-                                        role: 'siswa',
-                                        createdAt: new Date().toISOString(),
-                                        scores: {}
-                                    });
-                                    successCount++;
-                                } catch (err) {
-                                    console.error("Gagal import baris:", row, err);
-                                }
-                            }
-                        }
-                    }
-                    showNotif(`Berhasil mengimport ${successCount} siswa!`, "success");
-                    // Reset input file agar bisa pilih file yang sama lagi jika perlu
-                    if(fileInputRef.current) fileInputRef.current.value = "";
-                };
-                reader.readAsText(file);
-            };
-
             const handleStartQuiz = (modulId) => {
                 const soal = quizDatabase[modulId] || quizDatabase['sejarah-pancasila'];
                 setQuizState({ modulId, idx: 0, correct: 0, answers: [], questions: soal });
@@ -518,10 +526,7 @@
             }, [students, searchTerm, filterClass]);
 
             // --- LOADING SCREEN ---
-            // Ini menangani loading internal React jika User/Auth belum siap
             if (loadingState) {
-                // Di sini kita tidak perlu render apa-apa, biarkan HTML statis (pre-loader) yang tampil
-                // Kecuali jika terlalu lama, kita bisa force tampilan error
                 if (loadingTooLong) {
                     return (
                         <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-600 p-4 font-sans text-center fade-in">
@@ -534,7 +539,7 @@
                         </div>
                     )
                 }
-                return null; // Biarkan pre-loader HTML yang bekerja
+                return null;
             }
 
             // --- TAMPILAN: LOGIN / REGISTER ---
@@ -607,12 +612,8 @@
                 );
             }
 
-            // ... (Kode bagian Guru Dashboard, Siswa Dashboard, dll tetap sama, hanya Layout yang membungkusnya)
-            // Hamba akan memastikan semua bagian view menggunakan Layout
-            
             // --- TAMPILAN: GURU DASHBOARD ---
             if (view === 'dashboard' && userData?.role === 'guru') {
-                // ... (Logic render guru dashboard sama, dibungkus Layout)
                 return (
                     <Layout notification={notification} userData={userData} handleLogout={handleLogout}>
                         <div className="bg-slate-600 text-white p-8 rounded-3xl mb-6 relative overflow-hidden shadow-xl">
@@ -622,7 +623,7 @@
                             </div>
                             <div className="absolute -right-10 -bottom-20 text-9xl opacity-10 rotate-12">👨‍🏫</div>
                         </div>
-                        {/* ... (Konten Guru Dashboard sama seperti sebelumnya) ... */}
+                        {/* MENU UTAMA */}
                         {teacherTab === 'menu' && (
                             <div className="grid md:grid-cols-3 gap-6 animate-fadeIn">
                                 <div onClick={() => setTeacherTab('modul')} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-blue-500 cursor-pointer transition-all group">
@@ -642,7 +643,7 @@
                                 </div>
                             </div>
                         )}
-                        {/* Sub-menus Guru (Modul, Siswa, Rekap) juga menggunakan konten yang sama seperti sebelumnya */}
+                        {/* SUB-MENU: MODUL */}
                         {teacherTab === 'modul' && (
                             <div className="animate-fadeIn">
                                 <button onClick={() => setTeacherTab('menu')} className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 mb-6 transition-colors"><ChevronLeft size={20}/> Kembali ke Menu</button>
@@ -661,6 +662,7 @@
                                 </div>
                             </div>
                         )}
+                        {/* SUB-MENU: SISWA */}
                         {teacherTab === 'siswa' && (
                             <div className="animate-fadeIn">
                                 <button onClick={() => setTeacherTab('menu')} className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 mb-6 transition-colors"><ChevronLeft size={20}/> Kembali ke Menu</button>
@@ -670,8 +672,8 @@
                                         <div className="flex gap-2">
                                             <button onClick={handleDownloadTemplate} className="bg-white border border-green-600 text-green-600 px-3 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-green-50 shadow-sm"><Download size={16}/> Unduh Template</button>
                                             <div className="relative">
-                                                <input type="file" accept=".csv" ref={fileInputRef} onChange={handleImportSiswa} className="hidden" />
-                                                <button onClick={() => fileInputRef.current.click()} className="bg-blue-600 text-white px-3 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-blue-700 shadow-lg"><Upload size={16}/> Import CSV</button>
+                                                <input type="file" accept=".xlsx, .xls, .csv" ref={fileInputRef} onChange={handleImportSiswa} className="hidden" />
+                                                <button onClick={() => fileInputRef.current.click()} className="bg-blue-600 text-white px-3 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-blue-700 shadow-lg"><Upload size={16}/> Import Excel</button>
                                             </div>
                                             <button onClick={openAddStudentModal} className="bg-orange-600 text-white px-3 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-orange-700 shadow-lg"><Plus size={16}/> Tambah</button>
                                         </div>
@@ -687,6 +689,7 @@
                                 </div>
                             </div>
                         )}
+                        {/* SUB-MENU: REKAP */}
                         {teacherTab === 'rekap' && (
                             <div className="animate-fadeIn">
                                 <button onClick={() => setTeacherTab('menu')} className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 mb-6 transition-colors"><ChevronLeft size={20}/> Kembali ke Menu</button>
@@ -725,29 +728,230 @@
                 );
             }
 
-            // ... (View Siswa Dashboard, Materi, dll sudah di bungkus layout di versi ini secara implisit sama seperti sebelumnya) ...
-            // (Untuk keringkasan, pastikan semua return view menggunakan <Layout>...</Layout>)
-            
-            // CONTOH VIEW SISWA:
-            if (view === 'dashboard' && userData?.role === 'siswa') {
-               const myModules = modules.filter(m => m.kelas === userData.kelas);
-               return (
-                   <Layout notification={notification} userData={userData} handleLogout={handleLogout}>
-                       {/* ... konten siswa ... */}
-                       <div className="bg-gradient-to-r from-red-600 to-red-500 text-white p-8 rounded-3xl mb-8 relative overflow-hidden shadow-lg">
-                            <div className="relative z-10"><h2 className="text-3xl font-bold mb-1">Halo, {userData.name.split(' ')[0]}! 👋</h2><p className="opacity-90">Siap belajar?</p><div className="mt-4 inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg text-sm font-bold"><Award size={16}/> Skor Kamu: {userData.scores ? Math.round(Object.values(userData.scores).reduce((a,b)=>a+b,0)/Object.values(userData.scores).length || 0) : 0}</div></div>
-                            <div className="absolute right-0 bottom-0 text-9xl opacity-20 transform translate-y-4">🇮🇩</div>
+            // --- TAMPILAN: GURU ADD/EDIT MATERI ---
+            if (view === 'addMateri') {
+                return (
+                    <Layout notification={notification} userData={userData} handleLogout={handleLogout}>
+                        <button onClick={() => setView('dashboard')} className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 mb-6 transition-colors">
+                            <ChevronLeft size={20}/> Kembali ke Dashboard
+                        </button>
+                        <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100 max-w-2xl mx-auto">
+                            <h2 className="text-2xl font-black text-slate-700 mb-6">{editingId ? 'Edit Materi' : 'Tulis Materi Baru'}</h2>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Judul Modul</label>
+                                    <input value={newMateri.title} onChange={e=>setNewMateri({...newMateri, title: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl border-2 border-transparent focus:border-red-500 focus:bg-white transition-all font-bold text-lg" placeholder="Contoh: Anti Korupsi" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Kelas</label>
+                                        <div className="relative">
+                                            <select value={newMateri.kelas} onChange={e=>setNewMateri({...newMateri, kelas: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none appearance-none">
+                                                <option disabled value="">Pilih Kelas</option>
+                                                <option value="X">Kelas X</option>
+                                                <option value="XI">Kelas XI</option>
+                                                <option value="XII">Kelas XII</option>
+                                            </select>
+                                            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={20} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Durasi (Menit)</label>
+                                        <input type="number" value={newMateri.durasi} onChange={e=>setNewMateri({...newMateri, durasi: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none" placeholder="45" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Isi Materi</label>
+                                    <textarea value={newMateri.konten} onChange={e=>setNewMateri({...newMateri, konten: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl border-2 border-transparent focus:border-red-500 focus:bg-white transition-all h-48 leading-relaxed" placeholder="Tuliskan konten materi pembelajaran di sini..."></textarea>
+                                </div>
+                                <button onClick={handleSaveMateri} className="w-full py-4 bg-slate-600 text-white rounded-xl font-bold hover:bg-slate-700 shadow-lg flex justify-center items-center gap-2 mt-4">
+                                    <CheckCircle size={20}/> {editingId ? 'Update Materi' : 'Simpan Materi ke Database'}
+                                </button>
+                            </div>
                         </div>
-                        <h3 className="font-bold text-xl mb-4 text-slate-700 flex items-center gap-2"><Book className="text-red-600"/> Materi Kelas {userData.kelas}</h3>
-                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {myModules.length > 0 ? myModules.map(m => (<div key={m.id} onClick={() => { setSelectedModule(m); setView('detail'); }} className="bg-white p-6 rounded-2xl border border-slate-200 hover:border-red-500 hover:shadow-xl cursor-pointer transition-all group relative overflow-hidden"><div className="absolute top-0 right-0 bg-slate-100 text-slate-500 text-[10px] font-bold px-3 py-1 rounded-bl-xl uppercase tracking-wider group-hover:bg-red-500 group-hover:text-white transition-colors">{m.durasi} Menit</div><div className="mt-4 mb-4"><h4 className="font-bold text-lg text-slate-700 group-hover:text-red-600 transition-colors line-clamp-2">{m.title}</h4></div><div className="flex items-center justify-between mt-auto pt-4 border-t border-slate-50"><span className="text-xs font-bold text-slate-400">Modul Pembelajaran</span><div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-red-500 group-hover:text-white transition-all"><ChevronLeft className="rotate-180" size={16}/></div></div></div>)) : (<div className="col-span-full py-12 text-center bg-white rounded-2xl border border-dashed"><p className="text-slate-400 font-bold">Belum ada materi untuk kelas {userData.kelas}</p></div>)}
-                        </div>
-                   </Layout>
-               )
+                    </Layout>
+                )
             }
 
-            // Default fallback
-            return null;
+            // --- TAMPILAN: SISWA DASHBOARD ---
+            if (view === 'dashboard' && userData?.role === 'siswa') {
+                const myModules = modules.filter(m => m.kelas === userData.kelas);
+                return (
+                    <Layout notification={notification} userData={userData} handleLogout={handleLogout}>
+                        <div className="bg-gradient-to-r from-red-600 to-red-500 text-white p-8 rounded-3xl mb-8 relative overflow-hidden shadow-lg">
+                            <div className="relative z-10">
+                                <h2 className="text-3xl font-bold mb-1">Halo, {userData.name.split(' ')[0]}! 👋</h2>
+                                <p className="opacity-90">Siap belajar Pancasila hari ini?</p>
+                                <div className="mt-4 inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg text-sm font-bold">
+                                    <Award size={16}/> Skor Kamu: {userData.scores ? Math.round(Object.values(userData.scores).reduce((a,b)=>a+b,0)/Object.values(userData.scores).length || 0) : 0}
+                                </div>
+                            </div>
+                            <div className="absolute right-0 bottom-0 text-9xl opacity-20 transform translate-y-4">🇮🇩</div>
+                        </div>
+
+                        <h3 className="font-bold text-xl mb-4 text-slate-700 flex items-center gap-2"><Book className="text-red-600"/> Materi Kelas {userData.kelas}</h3>
+                        
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {myModules.length > 0 ? myModules.map(m => (
+                                <div key={m.id} onClick={() => { setSelectedModule(m); setView('detail'); }} className="bg-white p-6 rounded-2xl border border-slate-200 hover:border-red-500 hover:shadow-xl cursor-pointer transition-all group relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 bg-slate-100 text-slate-500 text-[10px] font-bold px-3 py-1 rounded-bl-xl uppercase tracking-wider group-hover:bg-red-500 group-hover:text-white transition-colors">
+                                        {m.durasi} Menit
+                                    </div>
+                                    <div className="mt-4 mb-4">
+                                        <h4 className="font-bold text-lg text-slate-700 group-hover:text-red-600 transition-colors line-clamp-2">{m.title}</h4>
+                                    </div>
+                                    <div className="flex items-center justify-between mt-auto pt-4 border-t border-slate-50">
+                                        <span className="text-xs font-bold text-slate-400">Modul Pembelajaran</span>
+                                        <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-red-500 group-hover:text-white transition-all">
+                                            <ChevronLeft className="rotate-180" size={16}/>
+                                        </div>
+                                    </div>
+                                </div>
+                            )) : (
+                                <div className="col-span-full py-12 text-center bg-white rounded-2xl border border-dashed">
+                                    <p className="text-slate-400 font-bold">Belum ada materi untuk kelas {userData.kelas}</p>
+                                </div>
+                            )}
+                        </div>
+                    </Layout>
+                );
+            }
+
+            // --- TAMPILAN: DETAIL MODUL ---
+            if (view === 'detail' && selectedModule) {
+                return (
+                    <Layout notification={notification} userData={userData} handleLogout={handleLogout}>
+                        <button onClick={() => setView('dashboard')} className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 mb-6 transition-colors">
+                            <ChevronLeft size={20}/> Kembali
+                        </button>
+                        <div className="bg-white rounded-3xl overflow-hidden shadow-xl border border-slate-100">
+                            {/* HEADER MODUL SOFT GREY */}
+                            <div className="bg-slate-600 text-white p-8">
+                                <div className="flex items-center gap-2 mb-2 opacity-70 text-sm font-bold uppercase tracking-wider">
+                                    <Book size={14}/> Materi Kelas {selectedModule.kelas}
+                                </div>
+                                <h1 className="text-3xl md:text-4xl font-black">{selectedModule.title}</h1>
+                            </div>
+                            <div className="p-8">
+                                <div className="prose prose-slate max-w-none mb-12">
+                                    <p className="text-lg leading-relaxed text-slate-600">{selectedModule.konten}</p>
+                                </div>
+                                <div className="flex justify-center">
+                                    <button onClick={() => handleStartQuiz(selectedModule.id)} className="bg-red-600 hover:bg-red-700 text-white px-10 py-4 rounded-full font-bold text-lg shadow-lg hover:shadow-red-500/30 transition-all active:scale-95 flex items-center gap-2">
+                                        ✍️ Kerjakan Kuis Evaluasi
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </Layout>
+                );
+            }
+
+            // --- TAMPILAN: QUIZ ---
+            if (view === 'quiz') {
+                const q = quizState.questions[quizState.idx];
+                return (
+                    // BACKGROUND SOFT GREY (SLATE-100)
+                    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans fade-in">
+                        <div className="bg-white w-full max-w-lg rounded-3xl p-8 relative shadow-xl">
+                            <div className="absolute top-0 left-0 w-full h-1 bg-slate-100 rounded-t-3xl overflow-hidden">
+                                <div className="h-full bg-red-500 transition-all duration-500" style={{width: `${((quizState.idx + 1) / quizState.questions.length) * 100}%`}}></div>
+                            </div>
+                            <div className="flex justify-between items-center mb-6 mt-2">
+                                <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">SOAL {quizState.idx + 1} / {quizState.questions.length}</span>
+                                <span className="text-xs font-bold text-red-500">PANCASILA ACADEMY</span>
+                            </div>
+                            <h3 className="text-xl font-bold mb-8 text-slate-700 leading-snug">{q.q}</h3>
+                            <div className="space-y-3">
+                                {q.opt.map((opt, i) => (
+                                    <button key={i} onClick={() => handleAnswer(i)} className="w-full text-left p-4 rounded-xl border-2 border-slate-100 font-bold text-slate-600 hover:border-red-500 hover:bg-red-50 hover:text-red-700 transition-all flex items-center gap-3 group">
+                                        <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-400 flex items-center justify-center text-sm group-hover:bg-red-500 group-hover:text-white transition-colors">{String.fromCharCode(65+i)}</div>
+                                        {opt}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // --- TAMPILAN: RESULT ---
+            if (view === 'result') {
+                const passed = quizState.finalScore >= 70;
+                return (
+                    // BACKGROUND SOFT GREY (SLATE-100)
+                    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans text-center fade-in">
+                        <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+                            <div className={`absolute top-0 left-0 w-full h-32 ${passed ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                            <div className="relative z-10 bg-white w-24 h-24 mx-auto rounded-full flex items-center justify-center text-5xl shadow-xl mt-12 mb-6">
+                                {passed ? '🏆' : '📚'}
+                            </div>
+                            <h2 className="text-slate-700 text-4xl font-black mb-1">{quizState.finalScore}</h2>
+                            <p className="text-slate-400 font-bold text-sm uppercase tracking-wider mb-8">{passed ? 'Lulus Kompetensi' : 'Perlu Belajar Lagi'}</p>
+                            <div className="bg-slate-50 rounded-xl p-4 mb-6 text-sm text-slate-500">
+                                {passed ? "Kerja bagus! Baginda Raja pasti bangga." : "Jangan menyerah, coba baca materi sekali lagi."}
+                            </div>
+                            <button onClick={() => setView('dashboard')} className="w-full bg-slate-600 text-white py-4 rounded-xl font-bold hover:bg-slate-700 shadow-lg">
+                                Kembali ke Dashboard
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            // --- FITUR 3: DETAIL SISWA (RAPOR MINI) ---
+            if (view === 'studentDetail' && selectedStudent) {
+                const avgScore = selectedStudent.scores && Object.values(selectedStudent.scores).length > 0 
+                    ? Math.round(Object.values(selectedStudent.scores).reduce((a,b)=>a+b,0)/Object.values(selectedStudent.scores).length) 
+                    : 0;
+
+                return (
+                    <Layout notification={notification} userData={userData} handleLogout={handleLogout}>
+                        <button onClick={() => setView('dashboard')} className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 mb-6 transition-colors">
+                            <ChevronLeft size={20}/> Kembali ke Dashboard
+                        </button>
+
+                        <div className="bg-white rounded-3xl overflow-hidden shadow-xl border border-slate-100 max-w-2xl mx-auto">
+                            <div className="bg-slate-600 text-white p-8">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center text-2xl font-bold">
+                                        {selectedStudent.name.charAt(0)}
+                                    </div>
+                                    <div>
+                                        <h2 className="text-2xl font-bold">{selectedStudent.name}</h2>
+                                        <p className="opacity-80 font-medium">Kelas {selectedStudent.kelas} - {selectedStudent.jurusan}</p>
+                                    </div>
+                                    <div className="ml-auto text-center">
+                                        <div className="text-xs uppercase opacity-70 font-bold">Rata-Rata</div>
+                                        <div className="text-4xl font-black">{avgScore}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="p-8">
+                                <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-700"><FileText className="text-red-600"/> Rincian Nilai Per Modul</h3>
+                                <div className="space-y-3">
+                                    {selectedStudent.scores ? Object.entries(selectedStudent.scores).map(([modId, score]) => {
+                                        // Cari judul modul berdasarkan ID
+                                        const modTitle = modules.find(m => m.id === modId)?.title || "Modul Tidak Dikenal ("+modId+")";
+                                        return (
+                                            <div key={modId} className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                                <div className="font-bold text-slate-600">{modTitle}</div>
+                                                <div className={`font-black text-lg ${score >= 75 ? 'text-green-600' : 'text-red-500'}`}>{score}</div>
+                                            </div>
+                                        );
+                                    }) : <p className="text-slate-400 italic">Belum ada nilai yang terekam.</p>}
+                                    
+                                    {selectedStudent.scores && Object.keys(selectedStudent.scores).length === 0 && (
+                                        <p className="text-slate-400 italic">Siswa ini belum mengerjakan kuis apapun.</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </Layout>
+                );
+            }
+            return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400 font-bold">Memuat Aplikasi...</div>;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
