@@ -136,7 +136,7 @@
             const [loadingState, setLoadingState] = useState(true);
             const [loadingTooLong, setLoadingTooLong] = useState(false);
             const fileInputRef = useRef(null);
-            const signatureInputRef = useRef(null); // Ref untuk input TTD
+            const signatureInputRef = useRef(null); 
 
             if (!isConfigured) return <div className="min-h-screen flex items-center justify-center bg-slate-100 text-slate-600 p-4"><div className="max-w-md text-center space-y-4"><h1 className="text-4xl font-black text-red-500">⚠️ ERROR</h1><p className="text-lg">Gagal menghubungkan ke Firebase.</p></div></div>;
 
@@ -145,7 +145,7 @@
             const [view, setView] = useState('login');
             const [error, setError] = useState('');
             const [notification, setNotification] = useState(null);
-            const [isSubmitting, setIsSubmitting] = useState(false); // New state for button loading
+            const [isSubmitting, setIsSubmitting] = useState(false); 
             
             // Data States
             const [modules, setModules] = useState([]);
@@ -175,7 +175,7 @@
             const [editingStudentId, setEditingStudentId] = useState(null);
             const [studentForm, setStudentForm] = useState({ name: '', username: '', password: '', kelas: 'X', jurusan: 'ULP' });
             
-            // Jurnal State (UPDATED: Added image)
+            // Jurnal State
             const [journalForm, setJournalForm] = useState({ date: '', kelas: 'X', jurusan: 'ULP', topic: '', notes: '', image: null });
 
             // AI & Modal
@@ -337,7 +337,7 @@
             const openEditStudentModal = (s) => { setEditingStudentId(s.id); setStudentForm(s); setStudentModalOpen(true); };
             const handleSaveStudent = async () => { if(!studentForm.name) return; try { const d = {...studentForm, role:'siswa'}; if(editingStudentId) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingStudentId), d); else await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', 'student_'+Date.now()), {...d, scores:{}, createdAt: new Date().toISOString()}); showNotif("Tersimpan"); setStudentModalOpen(false); } catch(e){showNotif("Gagal","error")} };
             
-            // JURNAL HANDLERS (UPDATED WITH IMAGE & JURUSAN)
+            // JURNAL HANDLERS
             const handleJournalImageChange = (e) => {
                 const file = e.target.files[0];
                 if(file) {
@@ -348,7 +348,6 @@
                 }
             };
             
-            // --- SIGNATURE HANDLER (NEW) ---
             const handleSignatureUpload = async (e) => {
                 const file = e.target.files[0];
                 if(file) {
@@ -357,16 +356,10 @@
                     reader.onload = async (ev) => {
                         const signatureBase64 = ev.target.result;
                         try {
-                            // Update user profile in Firestore
-                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
-                                signature: signatureBase64
-                            });
-                            // Update local state
+                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), { signature: signatureBase64 });
                             setUserData(prev => ({...prev, signature: signatureBase64}));
                             showNotif("Tanda tangan berhasil disimpan!", "success");
-                        } catch (err) {
-                            showNotif("Gagal menyimpan tanda tangan", "error");
-                        }
+                        } catch (err) { showNotif("Gagal menyimpan tanda tangan", "error"); }
                     };
                     reader.readAsDataURL(file);
                 }
@@ -381,9 +374,7 @@
                     });
                     showNotif("Jurnal berhasil disimpan!", "success");
                     setJournalForm({ date: '', kelas: 'X', jurusan: 'ULP', topic: '', notes: '', image: null });
-                } catch(e) {
-                    showNotif("Gagal menyimpan jurnal.", "error");
-                }
+                } catch(e) { showNotif("Gagal menyimpan jurnal.", "error"); }
             };
 
             const handleDeleteJournal = (id) => {
@@ -395,101 +386,10 @@
 
             const handleExportJournal = () => {
                 if (journals.length === 0) return showNotif("Belum ada data jurnal untuk diekspor", "error");
-
                 const printWindow = window.open('', '_blank');
                 if (!printWindow) return showNotif("Pop-up diblokir. Izinkan pop-up untuk mencetak.", "error");
-                
-                // Construct Signature HTML
-                const signatureHtml = userData.signature 
-                    ? `<img src="${userData.signature}" style="height: 60px; display: block; margin: 0 auto 5px auto;" alt="ttd"/>`
-                    : `<div style="height: 60px;"></div>`;
-
-                const content = `
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <title>Jurnal Mengajar - SILA</title>
-                        <style>
-                            body { font-family: 'Times New Roman', serif; padding: 40px; font-size: 14px; line-height: 1.6; }
-                            h1, h2, h3 { text-align: center; margin: 5px 0; }
-                            h1 { font-size: 18px; font-weight: bold; text-transform: uppercase; }
-                            h2 { font-size: 16px; font-weight: bold; }
-                            .header-line { border-bottom: 3px double black; margin-top: 15px; margin-bottom: 30px; }
-                            
-                            .teacher-info { margin-bottom: 25px; }
-                            .teacher-info p { margin: 3px 0; }
-
-                            .journal-entry { border: 1px solid #000; margin-bottom: 25px; page-break-inside: avoid; }
-                            .entry-header { background-color: #f0f0f0; border-bottom: 1px solid #000; padding: 8px 15px; display: flex; justify-content: space-between; font-weight: bold; border-top: 2px solid #000; border-left: 2px solid #000; border-right: 2px solid #000; }
-                            .entry-body { padding: 15px; border-left: 2px solid #000; border-right: 2px solid #000; border-bottom: 2px solid #000; display: flex; gap: 20px; }
-                            
-                            .content-section { flex: 1; }
-                            .image-section { width: 150px; flex-shrink: 0; }
-                            .journal-img { width: 100%; height: auto; border: 1px solid #ccc; padding: 2px; }
-
-                            .section-title { font-weight: bold; text-decoration: underline; margin-bottom: 5px; display: block; }
-                            .content-block { margin-bottom: 15px; }
-                            
-                            .footer-signature { margin-top: 50px; text-align: right; }
-                            .sign-box { display: inline-block; text-align: center; min-width: 200px; }
-                            .sign-name { margin-top: 5px; font-weight: bold; text-decoration: underline; }
-                        </style>
-                    </head>
-                    <body>
-                        <h1>JURNAL KEGIATAN PEMBELAJARAN</h1>
-                        <h2>PENDIDIKAN PANCASILA</h2>
-                        <h1>SMK AL-WAFA</h1>
-                        <div class="header-line"></div>
-
-                        <div class="teacher-info">
-                            <p><strong>Nama Guru:</strong> ${userData?.name}</p>
-                            <p><strong>Tahun Pelajaran:</strong> ${new Date().getFullYear()}/${new Date().getFullYear()+1}</p>
-                        </div>
-
-                        ${journals.sort((a,b) => new Date(b.date) - new Date(a.date)).map(j => `
-                            <div class="journal-entry">
-                                <div class="entry-header">
-                                    <span>HARI/TANGGAL: ${new Date(j.date).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase()}</span>
-                                    <span>KELAS: ${j.kelas} ${j.jurusan || ''}</span>
-                                </div>
-                                <div class="entry-body">
-                                    <div class="content-section">
-                                        <div class="content-block">
-                                            <span class="section-title">MATERI POKOK / TOPIK:</span>
-                                            ${j.topic}
-                                        </div>
-                                        <div class="content-block">
-                                            <span class="section-title">CATATAN KEGIATAN & REFLEKSI:</span>
-                                            <div style="white-space: pre-wrap;">${j.notes}</div>
-                                        </div>
-                                    </div>
-                                    ${j.image ? `
-                                    <div class="image-section">
-                                        <span class="section-title" style="font-size: 0.8em; margin-bottom: 2px;">DOKUMENTASI:</span>
-                                        <img src="${j.image}" class="journal-img" alt="Dokumentasi"/>
-                                    </div>
-                                    ` : ''}
-                                </div>
-                            </div>
-                        `).join('')}
-
-                        <div class="footer-signature">
-                            <div class="sign-box">
-                                <p>Bandung, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-                                <p>Guru Mata Pelajaran,</p>
-                                <br/>
-                                ${signatureHtml}
-                                <div class="sign-name">${userData?.name}</div>
-                            </div>
-                        </div>
-
-                        <script>
-                            window.onload = function() { window.print(); }
-                        <\/script>
-                    </body>
-                    </html>
-                `;
-
+                const signatureHtml = userData.signature ? `<img src="${userData.signature}" style="height: 60px; display: block; margin: 0 auto 5px auto;" alt="ttd"/>` : `<div style="height: 60px;"></div>`;
+                const content = `<!DOCTYPE html><html><head><title>Jurnal Mengajar - SILA</title><style>body{font-family:'Times New Roman',serif;padding:40px;font-size:14px;line-height:1.6}h1,h2,h3{text-align:center;margin:5px 0}h1{font-size:18px;font-weight:bold;text-transform:uppercase}h2{font-size:16px;font-weight:bold}.header-line{border-bottom:3px double black;margin-top:15px;margin-bottom:30px}.teacher-info{margin-bottom:25px}.teacher-info p{margin:3px 0}.journal-entry{border:1px solid #000;margin-bottom:25px;page-break-inside:avoid}.entry-header{background-color:#f0f0f0;border-bottom:1px solid #000;padding:8px 15px;display:flex;justify-content:space-between;font-weight:bold;border-top:2px solid #000;border-left:2px solid #000;border-right:2px solid #000}.entry-body{padding:15px;border-left:2px solid #000;border-right:2px solid #000;border-bottom:2px solid #000;display:flex;gap:20px}.content-section{flex:1}.image-section{width:150px;flex-shrink:0}.journal-img{width:100%;height:auto;border:1px solid #ccc;padding:2px}.section-title{font-weight:bold;text-decoration:underline;margin-bottom:5px;display:block}.content-block{margin-bottom:15px}.footer-signature{margin-top:50px;text-align:right}.sign-box{display:inline-block;text-align:center;min-width:200px}.sign-name{margin-top:5px;font-weight:bold;text-decoration:underline}</style></head><body><h1>JURNAL KEGIATAN PEMBELAJARAN</h1><h2>PENDIDIKAN PANCASILA</h2><h1>SMK AL-WAFA</h1><div class="header-line"></div><div class="teacher-info"><p><strong>Nama Guru:</strong> ${userData?.name}</p><p><strong>Tahun Pelajaran:</strong> ${new Date().getFullYear()}/${new Date().getFullYear()+1}</p></div>${journals.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(j=>`<div class="journal-entry"><div class="entry-header"><span>HARI/TANGGAL: ${new Date(j.date).toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).toUpperCase()}</span><span>KELAS: ${j.kelas} ${j.jurusan||''}</span></div><div class="entry-body"><div class="content-section"><div class="content-block"><span class="section-title">MATERI POKOK / TOPIK:</span>${j.topic}</div><div class="content-block"><span class="section-title">CATATAN KEGIATAN & REFLEKSI:</span><div style="white-space:pre-wrap;">${j.notes}</div></div></div>${j.image?`<div class="image-section"><span class="section-title" style="font-size:0.8em;margin-bottom:2px;">DOKUMENTASI:</span><img src="${j.image}" class="journal-img" alt="Dokumentasi"/></div>`:''}</div></div>`).join('')}<div class="footer-signature"><div class="sign-box"><p>Bandung, ${new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})}</p><p>Guru Mata Pelajaran,</p><br/>${signatureHtml}<div class="sign-name">${userData?.name}</div></div></div><script>window.onload=function(){window.print()}<\/script></body></html>`;
                 printWindow.document.write(content);
                 printWindow.document.close();
             };
@@ -501,7 +401,46 @@
             const handleResetPassword = (id) => { openConfirm("Reset Password?", "Jadi 123456.", async () => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id), {password:'123456'}); showNotif("Direset"); } catch(e) { showNotif("Gagal", "error"); } }); };
             const handleDeleteSiswa = (id) => { openConfirm("Hapus Siswa?", "Permanen.", async () => { try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id)); showNotif("Terhapus"); } catch(e) { showNotif("Gagal", "error"); } }); };
 
-            const handleDownloadCSV = () => { const header = "Nama,Kelas,Rata2\n"; const rows = students.map(s => `${s.name},${s.kelas},${s.scores?Math.round(Object.values(s.scores).reduce((a,b)=>a+b,0)/Object.values(s.scores).length):0}`).join("\n"); const link = document.createElement("a"); link.href = encodeURI("data:text/csv;charset=utf-8,"+header+rows); link.download = "rekap.csv"; link.click(); };
+            // FITUR EXPORT NILAI KE EXCEL (XLSX) YANG RAPI
+            const handleDownloadExcel = () => {
+                const data = filteredStudents.map(s => {
+                    const avg = s.scores && Object.values(s.scores).length > 0 
+                        ? Math.round(Object.values(s.scores).reduce((a,b)=>a+b,0)/Object.values(s.scores).length) 
+                        : 0;
+                    
+                    // Base data siswa
+                    const row = {
+                        "Nama Lengkap": s.name,
+                        "Kelas": s.kelas,
+                        "Jurusan": s.jurusan,
+                        "Rata-rata": avg
+                    };
+
+                    // Tambahkan kolom dinamis untuk setiap modul
+                    modules.forEach(m => {
+                        row[m.title] = s.scores?.[m.id] || '-';
+                    });
+
+                    return row;
+                });
+
+                const ws = XLSX.utils.json_to_sheet(data);
+                
+                // Atur lebar kolom agar rapi
+                const wscols = [
+                    {wch: 30}, // Nama
+                    {wch: 10}, // Kelas
+                    {wch: 10}, // Jurusan
+                    {wch: 10}, // Rata-rata
+                ];
+                modules.forEach(() => wscols.push({wch: 20})); // Kolom modul
+                ws['!cols'] = wscols;
+
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Rekap Nilai");
+                XLSX.writeFile(wb, `Rekap_Nilai_${filterClass}_${filterJurusan}.xlsx`);
+            };
+
             const handleStartQuiz = (mid) => { 
                 const currentModul = modules.find(m => m.id === mid);
                 const modulQuestions = currentModul && currentModul.questions && currentModul.questions.length > 0 ? currentModul.questions : (quizDatabase[mid] || quizDatabase['sejarah-pancasila']);
@@ -512,12 +451,10 @@
             const handleAnswer = async (idx) => {
                 const isCorrect = idx === quizState.questions[quizState.idx].ans;
                 const nc = isCorrect ? quizState.correct + 1 : quizState.correct;
-                
                 if (quizState.idx + 1 < quizState.questions.length) {
                     setQuizState({ ...quizState, idx: quizState.idx + 1, correct: nc });
                 } else {
                     const finalScore = Math.round((nc / quizState.questions.length) * 100);
-                    
                     if (userData) {
                         const newScores = { ...(userData.scores || {}), [quizState.modulId]: finalScore };
                         setUserData({ ...userData, scores: newScores }); 
@@ -737,7 +674,34 @@
                                 </div>
                         <div className="space-y-2">{filteredStudents.map(s=><div key={s.id} className="bg-white p-3 border rounded-lg flex justify-between items-center"><div><div className="font-bold">{s.name}</div><div className="text-xs text-slate-500">{s.kelas} {s.jurusan} | @{s.username}</div></div><div className="flex gap-2"><button onClick={()=>openEditStudentModal(s)} className="p-2 bg-blue-50 text-blue-600 rounded"><Edit size={14}/></button><button onClick={()=>handleResetPassword(s.id)} className="p-2 bg-yellow-50 text-yellow-600 rounded"><Key size={14}/></button><button onClick={()=>handleDeleteSiswa(s.id)} className="p-2 bg-red-50 text-red-600 rounded"><Trash2 size={14}/></button></div></div>)}</div></div>}
                         
-                        {teacherTab === 'rekap' && <div className="animate-fadeIn"><button onClick={()=>setTeacherTab('menu')} className="mb-4 flex gap-2 font-bold text-slate-400 hover:text-slate-600"><ChevronLeft/> Kembali</button><div className="flex justify-between mb-4"><h3 className="text-xl font-bold text-slate-700">Rekap Nilai</h3><button onClick={handleDownloadCSV} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-bold flex gap-2"><Download size={16}/> CSV</button></div><div className="space-y-2">{filteredStudents.map(s=><div key={s.id} className="bg-white p-4 border rounded-xl flex justify-between items-center"><div><div className="font-bold">{s.name}</div><div className="text-xs text-slate-500">{s.kelas} {s.jurusan}</div></div><div className="flex items-center gap-4"><div className="text-right"><div className="text-[10px] uppercase text-slate-400 font-bold">Rata-rata</div><div className="font-bold text-lg">{s.scores?Math.round(Object.values(s.scores).reduce((a,b)=>a+b,0)/Object.values(s.scores).length):'-'}</div></div><button onClick={()=>{setSelectedStudent(s);setView('studentDetail')}} className="p-2 bg-slate-100 rounded-full"><Eye size={18}/></button></div></div>)}</div></div>}
+                        {teacherTab === 'rekap' && <div className="animate-fadeIn"><button onClick={()=>setTeacherTab('menu')} className="mb-4 flex gap-2 font-bold text-slate-400 hover:text-slate-600"><ChevronLeft/> Kembali</button><div className="flex justify-between mb-4"><h3 className="text-xl font-bold text-slate-700">Rekap Nilai</h3><button onClick={handleDownloadExcel} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-bold flex gap-2"><Download size={16}/> Unduh Excel</button></div>
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 mb-4 flex flex-col md:flex-row gap-3 shadow-sm">
+                                    <div className="flex-1 relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
+                                        <input type="text" placeholder="Cari nama siswa..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                                    </div>
+                                    <div className="flex gap-2 w-full md:w-auto">
+                                        <div className="relative w-full md:w-32">
+                                            <select className="w-full pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 appearance-none font-bold text-slate-600" value={filterClass} onChange={(e) => setFilterClass(e.target.value)}>
+                                                <option value="Semua">Semua Kelas</option>
+                                                <option value="X">Kelas X</option>
+                                                <option value="XI">Kelas XI</option>
+                                                <option value="XII">Kelas XII</option>
+                                            </select>
+                                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                                        </div>
+                                        <div className="relative w-full md:w-32">
+                                            <select className="w-full pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 appearance-none font-bold text-slate-600" value={filterJurusan} onChange={(e) => setFilterJurusan(e.target.value)}>
+                                                <option value="Semua">Semua Jurusan</option>
+                                                <option value="ULP">ULP</option>
+                                                <option value="PF">PF</option>
+                                                <option value="TF">TF</option>
+                                            </select>
+                                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                                        </div>
+                                    </div>
+                                </div>
+                        <div className="space-y-2">{filteredStudents.map(s=><div key={s.id} className="bg-white p-4 border rounded-xl flex justify-between items-center"><div><div className="font-bold">{s.name}</div><div className="text-xs text-slate-500">{s.kelas} {s.jurusan}</div></div><div className="flex items-center gap-4"><div className="text-right"><div className="text-[10px] uppercase text-slate-400 font-bold">Rata-rata</div><div className="font-bold text-lg">{s.scores?Math.round(Object.values(s.scores).reduce((a,b)=>a+b,0)/Object.values(s.scores).length):'-'}</div></div><button onClick={()=>{setSelectedStudent(s);setView('studentDetail')}} className="p-2 bg-slate-100 rounded-full"><Eye size={18}/></button></div></div>)}</div></div>}
                         
                         {/* JURNAL VIEW (NEW) */}
                         {teacherTab === 'jurnal' && (
