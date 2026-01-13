@@ -1,433 +1,588 @@
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pancasila Academy</title>
+import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, signOut, updateProfile } from 'firebase/auth';
+import { getFirestore, collection, doc, setDoc, addDoc, getDocs, onSnapshot, query, updateDoc, deleteDoc, where } from 'firebase/firestore';
+import { Book, User, Award, LogOut, Plus, Trash2, CheckCircle, XCircle, ChevronLeft, Shield } from 'lucide-react';
+
+// --- KONFIGURASI FIREBASE ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'pancasila-v1';
+
+// --- DATA MODUL DEFAULT (Fallback jika DB kosong) ---
+const defaultModules = [
+  { 
+    id: 'sejarah-pancasila', 
+    title: 'Sejarah Perumusan Pancasila', 
+    kelas: 'X', 
+    durasi: '45', 
+    konten: 'Sidang BPUPKI pertama membahas dasar negara. Tokoh yang mengusulkan antara lain M. Yamin, Soepomo, dan Soekarno. Kemudian terbentuklah Piagam Jakarta sebagai kesepakatan awal.' 
+  },
+  { 
+    id: 'demokrasi-indonesia', 
+    title: 'Dinamika Demokrasi', 
+    kelas: 'XI', 
+    durasi: '60', 
+    konten: 'Demokrasi di Indonesia mengalami pasang surut, mulai dari Demokrasi Parlementer, Terpimpin, hingga Demokrasi Pancasila. Intinya adalah kedaulatan berada di tangan rakyat.' 
+  },
+  { 
+    id: 'pelanggaran-hak', 
+    title: 'Pelanggaran Hak & Kewajiban', 
+    kelas: 'XII', 
+    durasi: '50', 
+    konten: 'Pelanggaran hak warga negara terjadi ketika warga negara tidak dapat menikmati atau memperoleh haknya. Faktor penyebabnya bisa internal (egoisme) atau eksternal (penyalahgunaan kekuasaan).' 
+  }
+];
+
+// --- SOAL KUIS (Hardcoded untuk demo ini agar sederhana) ---
+const quizDatabase = {
+  'sejarah-pancasila': [
+    { q: 'Siapa yang mengusulkan nama Pancasila?', opt: ['M. Yamin', 'Soepomo', 'Ir. Soekarno', 'Hatta'], ans: 2 },
+    { q: 'Kapan hari lahir Pancasila diperingati?', opt: ['1 Juni', '17 Agustus', '18 Agustus', '22 Juni'], ans: 0 }
+  ],
+  'demokrasi-indonesia': [
+    { q: 'Kedaulatan berada di tangan...', opt: ['Presiden', 'DPR', 'Rakyat', 'MPR'], ans: 2 },
+    { q: 'Demokrasi Pancasila mengutamakan...', opt: ['Voting', 'Musyawarah', 'Otoriter', 'Liberal'], ans: 1 }
+  ],
+  'pelanggaran-hak': [
+    { q: 'Membuang sampah sembarangan melanggar...', opt: ['Hak', 'Kewajiban', 'Hukum Pidana', 'Adat'], ans: 1 },
+    { q: 'Faktor internal pelanggaran hak adalah...', opt: ['Aparat lemah', 'Sikap egois', 'Teknologi', 'Kesenjangan'], ans: 1 }
+  ]
+};
+
+const App = () => {
+  const [user, setUser] = useState(null);
+  const [userData, setUserData] = useState(null);
+  const [view, setView] = useState('login'); // login, register, dashboard, detail, quiz, result, addMateri
+  const [error, setError] = useState('');
+  const [notification, setNotification] = useState(null);
+  const [modules, setModules] = useState([]);
+  const [selectedModule, setSelectedModule] = useState(null);
+  const [students, setStudents] = useState([]);
+  
+  // State Login/Register
+  const [authMode, setAuthMode] = useState('siswa'); // siswa / guru
+  const [form, setForm] = useState({ username: '', password: '', fullname: '', kelas: 'X', jurusan: 'ULP', teacherCode: '' });
+
+  // State Quiz
+  const [quizState, setQuizState] = useState({ idx: 0, correct: 0, answers: [] });
+  
+  // State Guru Tambah Materi
+  const [newMateri, setNewMateri] = useState({ title: '', kelas: 'X', durasi: '', konten: '' });
+
+  // --- INIT AUTH & DATA ---
+  useEffect(() => {
+    const initAuth = async () => {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+    };
+    initAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (!u) {
+        setUserData(null);
+        setView('login');
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // --- FETCH USER DATA ---
+  useEffect(() => {
+    if (!user) return;
     
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    // Perbaikan Path: Menambahkan 'data' agar segmen genap (6 segmen)
+    // artifacts / appId / public / data / users / userId
+    const userDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
     
-    <script src="https://cdn.tailwindcss.com"></script>
+    const unsubUser = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setUserData(docSnap.data());
+        setView('dashboard');
+      } else {
+        // Jika user anonim belum punya data profil, tetap di login/register
+      }
+    }, (err) => console.error("Err fetch user:", err));
 
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    return () => unsubUser();
+  }, [user]);
 
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; }
-    </style>
-</head>
-<body class="bg-slate-50 text-slate-900">
-    <div id="root"></div>
+  // --- FETCH MODULES (PUBLIC) ---
+  useEffect(() => {
+    if(!user) return;
+    // Query path sudah benar (ganjil untuk collection): artifacts / appId / public / data / modules
+    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'modules'));
+    const unsub = onSnapshot(q, (snap) => {
+      const fetched = snap.docs.map(d => ({id: d.id, ...d.data()}));
+      const combined = [...defaultModules.filter(dm => !fetched.find(f => f.id === dm.id)), ...fetched];
+      setModules(combined);
+    }, (err) => console.log("Err modules", err)); 
+    return () => unsub();
+  }, [user]);
 
-    <script type="text/babel">
-        // --- KONFIGURASI FIREBASE ---
-        // GANTI INI DENGAN DATA BAGINDA RAJA
-        const firebaseConfig = {
-            apiKey: "AIzaSyBlR-H_LQXpUwEX322FGjH4o7n0HxscOpM",
-            authDomain: "pancasila-academy.firebaseapp.com",
-            projectId: "pancasila-academy",
-            storageBucket: "pancasila-academy.firebasestorage.app",
-            messagingSenderId: "393704415387",
-            appId: "1:393704415387:web:8d0658514e272b5121663e"
-        };
+  // --- FETCH STUDENTS (TEACHER ONLY) ---
+  useEffect(() => {
+    if(!user || !userData || userData.role !== 'guru') return;
+    
+    // Perbaikan Path: Menambahkan 'data' agar sesuai struktur public
+    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'), where('role', '==', 'siswa'));
+    const unsub = onSnapshot(q, (snap) => {
+      setStudents(snap.docs.map(d => ({id: d.id, ...d.data()})));
+    }, (err) => console.log("Err students", err));
+    return () => unsub();
+  }, [user, userData]);
 
-        // Inisialisasi Firebase (Versi Compat untuk HTML Biasa)
-        const app = firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
-        const appId = 'pancasila-academy-v1';
 
-        const { useState, useEffect, useMemo } = React;
+  // --- HANDLERS ---
 
-        // Data Modul
-        const modulData = {
-            'sejarah-pancasila': { id: 'sejarah-pancasila', title: 'Sejarah Perumusan Pancasila', kelas: ['X'], durasi: '45 menit', konten: [{ judul: 'I. SIDANG BPUPKI', isi: 'Membahas dasar negara oleh M. Yamin, Soepomo, dan Soekarno.' }, { judul: 'II. PIAGAM JAKARTA', isi: 'Kesepakatan awal dasar negara.' }] },
-            'demokrasi-indonesia': { id: 'demokrasi-indonesia', title: 'Dinamika Demokrasi', kelas: ['XI'], durasi: '60 menit', konten: [{ judul: 'I. PRINSIP DEMOKRASI', isi: 'Kedaulatan di tangan rakyat.' }, { judul: 'II. PERIODISASI', isi: 'Sejarah demokrasi Indonesia.' }] },
-            'pelanggaran-hak': { id: 'pelanggaran-hak', title: 'Pelanggaran Hak & Kewajiban', kelas: ['XII'], durasi: '50 menit', konten: [{ judul: 'I. FAKTOR PENYEBAB', isi: 'Egoisme dan rendahnya kesadaran.' }, { judul: 'II. PENANGANAN', isi: 'Upaya preventif dan represif.' }] }
-        };
+  const showNotif = (msg, type = 'success') => {
+    setNotification({ msg, type });
+    setTimeout(() => setNotification(null), 3000);
+  };
 
-        // Data Kuis
-        const quizData = {
-            'sejarah-pancasila': [{ pertanyaan: 'Sidang BPUPKI pertama membahas...', pilihan: ['UUD', 'Dasar Negara', 'Proklamasi', 'Kabinet'], jawaban: 1 }, { pertanyaan: 'Tanggal Pancasila disahkan...', pilihan: ['1 Juni', '22 Juni', '17 Ags', '18 Ags'], jawaban: 3 }],
-            'demokrasi-indonesia': [{ pertanyaan: 'Demokrasi Pancasila mengutamakan...', pilihan: ['Voting', 'Pimpinan', 'Musyawarah', 'Golongan'], jawaban: 2 }, { pertanyaan: 'Demokrasi Orde Baru disebut...', pilihan: ['Liberal', 'Terpimpin', 'Pancasila', 'Parlementer'], jawaban: 2 }],
-            'pelanggaran-hak': [{ pertanyaan: 'Bukan penyebab pelanggaran hak...', pilihan: ['Egois', 'Kesadaran Tinggi', 'Teknologi', 'Aparat Lemah'], jawaban: 1 }, { pertanyaan: 'Buang sampah sembarangan melanggar...', pilihan: ['Hak', 'Kewajiban', 'HAM', 'Pidana'], jawaban: 1 }]
-        };
+  const handleRegister = async () => {
+    if (!form.username || !form.password || !form.fullname) return setError("Semua kolom wajib diisi!");
+    if (authMode === 'guru' && form.teacherCode !== 'PANCA2024') return setError("Kode Guru Salah!");
 
-        const App = () => {
-            const [view, setView] = useState('login');
-            const [user, setUser] = useState(null);
-            const [dbUsers, setDbUsers] = useState([]);
-            const [loginRole, setLoginRole] = useState('siswa');
-            const [regRole, setRegRole] = useState('siswa');
-            const [error, setError] = useState("");
-            const [selectedModul, setSelectedModul] = useState(null);
-            const [quizState, setQuizState] = useState(null);
-            const [score, setScore] = useState(null);
+    try {
+      const role = authMode;
+      const newUser = {
+        username: form.username,
+        password: form.password, 
+        name: form.fullname,
+        role: role,
+        createdAt: new Date().toISOString(),
+        scores: {}
+      };
 
-            // Fetch Data Realtime
-            useEffect(() => {
-                auth.signInAnonymously().catch(console.error);
-                const unsubscribe = db.collection('users').onSnapshot(snap => {
-                    const data = snap.docs.map(doc => ({id: doc.id, ...doc.data()}));
-                    setDbUsers(data);
-                });
-                return () => unsubscribe();
-            }, []);
+      if (role === 'siswa') {
+        newUser.kelas = form.kelas;
+        newUser.jurusan = form.jurusan;
+      }
 
-            const handleRegister = async (e) => {
-                e.preventDefault();
-                const name = e.target.fullname.value;
-                const username = e.target.username.value;
-                const password = e.target.password.value;
+      // Perbaikan Path: Menambahkan 'data'
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), newUser);
+      
+      showNotif("Pendaftaran Berhasil!", "success");
+    } catch (e) {
+      setError(e.message);
+    }
+  };
 
-                if(dbUsers.some(u => u.username === username)) return setError("Username sudah ada!");
+  const handleLogin = async () => {
+    try {
+      // Perbaikan Path: Menambahkan 'data'
+      const q = query(
+        collection(db, 'artifacts', appId, 'public', 'data', 'users'), 
+        where('username', '==', form.username),
+        where('password', '==', form.password),
+        where('role', '==', authMode)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      if (querySnapshot.empty) {
+        setError("Login Gagal. Cek username/password/peran.");
+      } else {
+        const foundUser = querySnapshot.docs[0].data();
+        setUserData(foundUser);
+        setView('dashboard');
+      }
+    } catch (e) {
+      setError("Terjadi kesalahan koneksi.");
+    }
+  };
 
-                const newUser = { name, username, password, role: regRole, createdAt: new Date().toISOString(), scores: {} };
-                if (regRole === 'siswa') {
-                    newUser.kelas = e.target.kelas.value;
-                    newUser.jurusan = e.target.jurusan.value;
-                } else {
-                    if(e.target.teacher_code.value !== "PANCA2024") return setError("Kode Guru Salah!");
-                }
+  const handleSaveMateri = async () => {
+    if (!newMateri.title || !newMateri.konten) return showNotif("Judul & Konten wajib diisi", "error");
+    
+    try {
+      // Path sudah benar: artifacts / appId / public / data / modules
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'modules'), {
+        ...newMateri,
+        createdAt: new Date().toISOString()
+      });
+      showNotif("Materi Berhasil Disimpan ke Database!", "success");
+      setNewMateri({ title: '', kelas: 'X', durasi: '', konten: '' });
+      setView('dashboard');
+    } catch (e) {
+      showNotif("Gagal menyimpan: " + e.message, "error");
+    }
+  };
 
-                await db.collection('users').add(newUser);
-                // Auto login setelah daftar (cari user yg baru dibuat)
-                // Disini kita set manual saja untuk UX cepat
-                setUser(newUser); 
-                setView('dashboard');
-            };
+  const handleDeleteSiswa = async (id) => {
+    try {
+        // Perbaikan Path: Menambahkan 'data'
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id));
+        showNotif("Data siswa dihapus");
+    } catch(e) {
+        showNotif("Gagal menghapus", "error");
+    }
+  };
 
-            const handleLogin = (e) => {
-                e.preventDefault();
-                const u = dbUsers.find(user => user.username === e.target.username.value && user.password === e.target.password.value && user.role === loginRole);
-                if(u) { setUser(u); setView('dashboard'); }
-                else setError("Login Gagal. Cek username/password/peran.");
-            };
+  const handleStartQuiz = (modulId) => {
+    const soal = quizDatabase[modulId] || quizDatabase['sejarah-pancasila'];
+    setQuizState({ modulId, idx: 0, correct: 0, answers: [], questions: soal });
+    setView('quiz');
+  };
 
-            // View Components
-            const LoginView = () => (
-                <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
-                    <div className="bg-white p-8 rounded-2xl w-full max-w-md">
-                        <h1 className="text-2xl font-bold text-center mb-4">🇮🇩 PANCASILA ACADEMY</h1>
-                        {error && <div className="bg-red-100 text-red-600 p-2 rounded mb-4 text-sm">{error}</div>}
-                        
-                        <div className="flex gap-2 mb-4 bg-slate-100 p-1 rounded-xl">
-                            <button onClick={()=>{setLoginRole('siswa'); setError('')}} className={`flex-1 py-2 rounded-lg font-bold text-sm ${loginRole === 'siswa' ? 'bg-white shadow' : 'text-slate-500'}`}>🎓 Siswa</button>
-                            <button onClick={()=>{setLoginRole('guru'); setError('')}} className={`flex-1 py-2 rounded-lg font-bold text-sm ${loginRole === 'guru' ? 'bg-white shadow' : 'text-slate-500'}`}>💼 Guru</button>
-                        </div>
+  const handleAnswer = async (ansIdx) => {
+    const isCorrect = ansIdx === quizState.questions[quizState.idx].ans;
+    const newCorrect = isCorrect ? quizState.correct + 1 : quizState.correct;
+    
+    if (quizState.idx + 1 < quizState.questions.length) {
+      setQuizState({ ...quizState, idx: quizState.idx + 1, correct: newCorrect });
+    } else {
+      const finalScore = Math.round((newCorrect / quizState.questions.length) * 100);
+      
+      if (userData && userData.role === 'siswa') {
+        try {
+             // Perbaikan Path: Menambahkan 'data'
+             const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'), where('username', '==', userData.username));
+             const snaps = await getDocs(q);
+             if(!snaps.empty) {
+                 const docId = snaps.docs[0].id;
+                 const currentScores = snaps.docs[0].data().scores || {};
+                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', docId), {
+                     scores: { ...currentScores, [quizState.modulId]: finalScore }
+                 });
+             }
+        } catch(e) { console.error("Gagal save score", e); }
+      }
+      
+      setQuizState({ ...quizState, finalScore });
+      setView('result');
+    }
+  };
 
-                        <form onSubmit={handleLogin} className="space-y-3">
-                            <input name="username" placeholder="Username" className="w-full p-3 border rounded-xl" required />
-                            <input type="password" name="password" placeholder="Password" className="w-full p-3 border rounded-xl" required />
-                            <button className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold">Masuk</button>
-                        </form>
-                        <p className="text-center mt-4 text-sm text-slate-500 cursor-pointer" onClick={()=>{setView('register'); setError('')}}>Belum punya akun? <span className="text-blue-600 font-bold">Daftar</span></p>
-                    </div>
-                </div>
-            );
+  // --- VIEWS ---
 
-            const RegisterView = () => (
-                <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
-                    <div className="bg-white p-8 rounded-2xl w-full max-w-md">
-                        <h1 className="text-2xl font-bold text-center mb-4">Daftar Akun Baru</h1>
-                        {error && <div className="bg-red-100 text-red-600 p-2 rounded mb-4 text-sm">{error}</div>}
-                        
-                        <div className="flex gap-2 mb-4 bg-slate-100 p-1 rounded-xl">
-                            <button onClick={()=>setRegRole('siswa')} className={`flex-1 py-2 rounded-lg font-bold text-sm ${regRole === 'siswa' ? 'bg-white shadow' : 'text-slate-500'}`}>🎓 Siswa</button>
-                            <button onClick={()=>setRegRole('guru')} className={`flex-1 py-2 rounded-lg font-bold text-sm ${regRole === 'guru' ? 'bg-white shadow' : 'text-slate-500'}`}>💼 Guru</button>
-                        </div>
+  if (view === 'login' || view === 'register') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800 p-4 font-sans text-slate-800">
+        <div className="bg-white p-8 rounded-3xl w-full max-w-md shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-500 to-white"></div>
+          
+          <h1 className="text-3xl font-black text-center mb-2 tracking-tight">🇮🇩 PANCASILA<br/><span className="text-red-600">ACADEMY</span></h1>
+          <p className="text-center text-slate-500 mb-6 text-sm">Platform Pembelajaran Ideologi Bangsa</p>
 
-                        <form onSubmit={handleRegister} className="space-y-3">
-                            <input name="fullname" placeholder="Nama Lengkap" className="w-full p-3 border rounded-xl" required />
-                            <input name="username" placeholder="Username Unik" className="w-full p-3 border rounded-xl" required />
-                            
-                            {regRole === 'siswa' ? (
-                                <div className="grid grid-cols-2 gap-2">
-                                    <select name="kelas" className="p-3 border rounded-xl"><option>X</option><option>XI</option><option>XII</option></select>
-                                    <select name="jurusan" className="p-3 border rounded-xl"><option>ULP</option><option>PF</option><option>TF</option></select>
-                                </div>
-                            ) : (
-                                <input name="teacher_code" placeholder="Kode Guru" type="password" className="w-full p-3 border rounded-xl" required />
-                            )}
+          {error && <div className="bg-red-50 text-red-600 p-3 rounded-xl mb-4 text-sm font-semibold flex items-center gap-2"><XCircle size={16}/> {error}</div>}
+          {notification && <div className="bg-green-50 text-green-600 p-3 rounded-xl mb-4 text-sm font-semibold flex items-center gap-2"><CheckCircle size={16}/> {notification.msg}</div>}
 
-                            <input name="password" type="password" placeholder="Password" className="w-full p-3 border rounded-xl" required />
-                            <button className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold">Daftar Sekarang</button>
-                        </form>
-                        <p className="text-center mt-4 text-sm text-slate-500 cursor-pointer" onClick={()=>setView('login')}>Kembali Login</p>
-                    </div>
-                </div>
-            );
+          <div className="flex gap-2 mb-6 bg-slate-100 p-1 rounded-xl">
+            <button onClick={() => setAuthMode('siswa')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${authMode === 'siswa' ? 'bg-white shadow text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>🎓 Siswa</button>
+            <button onClick={() => setAuthMode('guru')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${authMode === 'guru' ? 'bg-white shadow text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}>💼 Guru</button>
+          </div>
 
-         const Dashboard = () => {
-                const isGuru = user.role === 'guru';
-                // State untuk Tab Guru (Home / Add)
-                const [teacherTab, setTeacherTab] = useState('home'); 
-                // State untuk data Form Materi
-                const [formMateri, setFormMateri] = useState({ title: '', kelas: 'X', durasi: '', konten: '' });
+          <div className="space-y-3">
+            {view === 'register' && (
+              <>
+                <input value={form.fullname} onChange={e=>setForm({...form, fullname: e.target.value})} placeholder="Nama Lengkap" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 transition-all" />
+                {authMode === 'siswa' ? (
+                   <div className="flex gap-2">
+                     <select value={form.kelas} onChange={e=>setForm({...form, kelas: e.target.value})} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex-1 font-bold text-slate-600">
+                       <option>X</option><option>XI</option><option>XII</option>
+                     </select>
+                     <select value={form.jurusan} onChange={e=>setForm({...form, jurusan: e.target.value})} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex-1 font-bold text-slate-600">
+                       <option>ULP</option><option>PF</option><option>TF</option>
+                     </select>
+                   </div>
+                ) : (
+                  <input type="password" value={form.teacherCode} onChange={e=>setForm({...form, teacherCode: e.target.value})} placeholder="Kode Guru (PANCA2024)" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500" />
+                )}
+              </>
+            )}
+            
+            <input value={form.username} onChange={e=>setForm({...form, username: e.target.value})} placeholder="Username" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500" />
+            <input type="password" value={form.password} onChange={e=>setForm({...form, password: e.target.value})} placeholder="Password" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500" />
+            
+            <button onClick={view === 'login' ? handleLogin : handleRegister} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg active:scale-95 flex justify-center items-center gap-2">
+              {view === 'login' ? 'Masuk Sekarang' : 'Daftar Akun'} <ChevronLeft className="rotate-180" size={18}/>
+            </button>
+          </div>
 
-                const deleteSiswa = async (id) => {
-                    if(confirm("Hapus siswa ini?")) await db.collection('users').doc(id).delete();
-                }
+          <p className="text-center mt-6 text-sm text-slate-400">
+            {view === 'login' ? 'Belum punya akun?' : 'Sudah punya akun?'} 
+            <span onClick={() => {setView(view === 'login' ? 'register' : 'login'); setError('')}} className="text-red-600 font-bold cursor-pointer ml-1 hover:underline">
+              {view === 'login' ? 'Daftar' : 'Login'}
+            </span>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-                // Fungsi Simpan Materi Baru (Simulasi State Lokal)
-                const handleSaveMateri = () => {
-                    if(!formMateri.title) return alert("Judul wajib diisi!");
-                    
-                    // Buat ID baru yang unik
-                    const newId = formMateri.title.toLowerCase().replace(/\s+/g, '-');
-                    
-                    // Masukkan ke data sementara (modulData)
-                    // Catatan: Di versi HTML sederhana ini, data akan reset jika di-refresh. 
-                    // Agar permanen harus simpan ke Firestore (tapi kodenya akan sangat panjang).
-                    modulData[newId] = {
-                        id: newId,
-                        title: formMateri.title,
-                        kelas: [formMateri.kelas],
-                        durasi: formMateri.durasi + ' menit',
-                        konten: [{ judul: 'I. Pendahuluan', isi: formMateri.konten }]
-                    };
-                    
-                    alert("Materi Berhasil Disimpan! (Cek di menu siswa)");
-                    setTeacherTab('home'); // Kembali ke menu utama
-                };
+  // --- DASHBOARD LAYOUT ---
+  const Layout = ({ children }) => (
+    <div className="min-h-screen bg-slate-50 pb-20 font-sans text-slate-800">
+      {notification && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-full shadow-xl font-bold text-white flex items-center gap-2 animate-bounce ${notification.type==='error'?'bg-red-500':'bg-green-500'}`}>
+          {notification.type === 'error' ? <XCircle/> : <CheckCircle/>} {notification.msg}
+        </div>
+      )}
+      
+      <nav className="bg-white px-4 py-3 border-b sticky top-0 z-20 shadow-sm flex justify-between items-center">
+        <div className="flex items-center gap-2 font-black text-slate-800 text-lg">
+           <Shield className="text-red-600 fill-current" /> 
+           <span className="hidden sm:inline">PANCASILA ACADEMY</span>
+           <span className="sm:hidden">PANCASILA</span>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-right hidden sm:block">
+            <div className="font-bold text-sm leading-tight">{userData?.name}</div>
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-100 px-2 py-0.5 rounded-full inline-block">{userData?.role}</div>
+          </div>
+          <button onClick={() => {setUser(null); setView('login');}} className="p-2 bg-red-50 text-red-500 rounded-full hover:bg-red-100 transition-colors">
+            <LogOut size={18} />
+          </button>
+        </div>
+      </nav>
+      
+      <main className="max-w-4xl mx-auto p-4 mt-2">
+        {children}
+      </main>
+    </div>
+  );
 
-                // --- TAMPILAN FORM TAMBAH MATERI ---
-                if (isGuru && teacherTab === 'add') {
-                    return (
-                        <div className="min-h-screen bg-slate-50 p-4">
-                            <div className="max-w-2xl mx-auto bg-white rounded-3xl p-8 shadow-xl mt-10">
-                                <div className="flex items-center gap-4 mb-6">
-                                    <button onClick={()=>setTeacherTab('home')} className="p-2 hover:bg-slate-100 rounded-full font-bold text-slate-500">← Batal</button>
-                                    <h2 className="text-2xl font-black text-slate-800">Tambah Materi Baru</h2>
-                                </div>
-                                
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-500 mb-1">JUDUL MODUL</label>
-                                        <input 
-                                            className="w-full p-3 border rounded-xl bg-slate-50" 
-                                            placeholder="Contoh: Anti Korupsi"
-                                            onChange={(e) => setFormMateri({...formMateri, title: e.target.value})}
-                                        />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-bold text-slate-500 mb-1">KELAS</label>
-                                            <select 
-                                                className="w-full p-3 border rounded-xl bg-slate-50"
-                                                onChange={(e) => setFormMateri({...formMateri, kelas: e.target.value})}
-                                            >
-                                                <option value="X">Kelas X</option>
-                                                <option value="XI">Kelas XI</option>
-                                                <option value="XII">Kelas XII</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-bold text-slate-500 mb-1">DURASI (MENIT)</label>
-                                            <input 
-                                                type="number" 
-                                                className="w-full p-3 border rounded-xl bg-slate-50" 
-                                                placeholder="45"
-                                                onChange={(e) => setFormMateri({...formMateri, durasi: e.target.value})}
-                                            />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-500 mb-1">RINGKASAN MATERI</label>
-                                        <textarea 
-                                            className="w-full p-3 border rounded-xl bg-slate-50 h-32" 
-                                            placeholder="Tuliskan isi materi di sini..."
-                                            onChange={(e) => setFormMateri({...formMateri, konten: e.target.value})}
-                                        ></textarea>
-                                    </div>
+  // --- TEACHER VIEW ---
+  if (view === 'dashboard' && userData?.role === 'guru') {
+    return (
+      <Layout>
+        <div className="bg-slate-900 text-white p-8 rounded-3xl mb-6 relative overflow-hidden shadow-xl">
+          <div className="relative z-10">
+             <h2 className="text-3xl font-bold mb-2">Panel Instruktur</h2>
+             <p className="text-slate-400">Kelola materi dan pantau perkembangan siswa.</p>
+          </div>
+          <div className="absolute -right-10 -bottom-20 text-9xl opacity-10 rotate-12">👨‍🏫</div>
+        </div>
 
-                                    {/* TOMBOL SIMPAN ADA DI SINI BAGINDA */}
-                                    <button 
-                                        onClick={handleSaveMateri}
-                                        className="w-full py-4 bg-slate-800 text-white font-bold rounded-2xl hover:bg-slate-900 shadow-lg mt-4 flex items-center justify-center gap-2"
-                                    >
-                                        💾 Simpan Materi
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    );
-                }
+        <div className="grid md:grid-cols-2 gap-4 mb-8">
+           <button onClick={() => setView('addMateri')} className="bg-white p-6 rounded-2xl border-2 border-dashed border-slate-300 hover:border-red-500 hover:bg-red-50 transition-all group flex flex-col items-center justify-center text-slate-400 hover:text-red-600 gap-2 h-40">
+             <div className="bg-slate-100 p-4 rounded-full group-hover:bg-white group-hover:shadow-md transition-all"><Plus size={32}/></div>
+             <span className="font-bold">Tambah Modul Baru</span>
+           </button>
+           
+           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-center h-40">
+             <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Total Siswa Aktif</div>
+             <div className="text-5xl font-black text-slate-800">{students.length}</div>
+             <div className="text-sm text-green-600 font-bold mt-2 flex items-center gap-1"><User size={14}/> Terdaftar</div>
+           </div>
+        </div>
 
-                // --- TAMPILAN DASHBOARD UTAMA ---
-                return (
-                    <div className="min-h-screen pb-10">
-                        <nav className="bg-white p-4 border-b flex justify-between items-center sticky top-0 z-10">
-                            <div className="font-black text-slate-800">🇮🇩 PANCASILA ACADEMY</div>
-                            <div className="flex items-center gap-4">
-                                <div className="text-right hidden sm:block">
-                                    <div className="font-bold text-sm">{user.name}</div>
-                                    <div className="text-xs text-slate-500 uppercase">{user.role}</div>
-                                </div>
-                                <button onClick={()=>setView('login')} className="text-red-500 font-bold text-sm">Keluar</button>
-                            </div>
-                        </nav>
+        <h3 className="font-bold text-xl mb-4 flex items-center gap-2"><User className="text-red-600"/> Daftar Siswa</h3>
+        <div className="space-y-3">
+          {students.map(s => (
+            <div key={s.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex justify-between items-center hover:shadow-md transition-shadow">
+               <div className="flex items-center gap-4">
+                 <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold">
+                   {s.name.charAt(0)}
+                 </div>
+                 <div>
+                   <div className="font-bold text-slate-800">{s.name}</div>
+                   <div className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded inline-block mt-1">{s.kelas} - {s.jurusan}</div>
+                 </div>
+               </div>
+               <div className="flex items-center gap-4">
+                 <div className="text-right hidden sm:block">
+                   <div className="text-[10px] text-slate-400 font-bold uppercase">Rata-rata Nilai</div>
+                   <div className="font-bold text-lg">
+                     {s.scores && Object.values(s.scores).length > 0 
+                       ? Math.round(Object.values(s.scores).reduce((a,b)=>a+b,0)/Object.values(s.scores).length) 
+                       : '-'}
+                   </div>
+                 </div>
+                 <button onClick={() => handleDeleteSiswa(s.id)} className="w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-all">
+                   <Trash2 size={16}/>
+                 </button>
+               </div>
+            </div>
+          ))}
+          {students.length === 0 && <div className="text-center py-10 text-slate-400 italic bg-slate-50 rounded-xl border border-dashed">Belum ada siswa terdaftar.</div>}
+        </div>
+      </Layout>
+    );
+  }
 
-                        <main className="max-w-4xl mx-auto p-4 mt-6">
-                            <div className="bg-slate-900 text-white p-8 rounded-3xl mb-8 relative overflow-hidden">
-                                <h2 className="text-2xl font-bold relative z-10">Halo, {user.name}! 👋</h2>
-                                <p className="text-slate-300 relative z-10">{isGuru ? "Panel Kontrol Instruktur" : "Selamat Belajar!"}</p>
-                                <div className="absolute right-0 bottom-0 text-9xl opacity-10">🇮🇩</div>
-                            </div>
+  // --- TEACHER ADD MATERIAL ---
+  if (view === 'addMateri') {
+      return (
+          <Layout>
+              <button onClick={() => setView('dashboard')} className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 mb-6 transition-colors">
+                  <ChevronLeft size={20}/> Kembali ke Dashboard
+              </button>
+              
+              <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100 max-w-2xl mx-auto">
+                  <h2 className="text-2xl font-black text-slate-800 mb-6">Tulis Materi Baru</h2>
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Judul Modul</label>
+                          <input value={newMateri.title} onChange={e=>setNewMateri({...newMateri, title: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl border-2 border-transparent focus:border-red-500 focus:bg-white transition-all font-bold text-lg" placeholder="Contoh: Anti Korupsi" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Kelas</label>
+                            <select value={newMateri.kelas} onChange={e=>setNewMateri({...newMateri, kelas: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none">
+                                <option>X</option><option>XI</option><option>XII</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Durasi (Menit)</label>
+                            <input type="number" value={newMateri.durasi} onChange={e=>setNewMateri({...newMateri, durasi: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl font-bold text-slate-700 outline-none" placeholder="45" />
+                          </div>
+                      </div>
+                      <div>
+                          <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Isi Materi</label>
+                          <textarea value={newMateri.konten} onChange={e=>setNewMateri({...newMateri, konten: e.target.value})} className="w-full p-4 bg-slate-50 rounded-xl border-2 border-transparent focus:border-red-500 focus:bg-white transition-all h-48 leading-relaxed" placeholder="Tuliskan konten materi pembelajaran di sini..."></textarea>
+                      </div>
+                      <button onClick={handleSaveMateri} className="w-full py-4 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 shadow-lg flex justify-center items-center gap-2 mt-4">
+                          <CheckCircle size={20}/> Simpan Materi ke Database
+                      </button>
+                  </div>
+              </div>
+          </Layout>
+      )
+  }
 
-                            {isGuru ? (
-                                <div className="space-y-8">
-                                    {/* MENU CEPAT GURU (TOMBOL TAMBAH MUNCUL DISINI) */}
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <button 
-                                            onClick={() => setTeacherTab('add')}
-                                            className="bg-slate-800 text-white p-6 rounded-2xl font-bold text-left hover:bg-slate-700 transition-all shadow-lg flex items-center gap-3"
-                                        >
-                                            <span className="text-2xl">+</span> Tambah Materi
-                                        </button>
-                                        <div className="bg-white p-6 rounded-2xl border flex flex-col justify-center">
-                                            <div className="text-slate-400 text-xs font-bold uppercase">Total Siswa</div>
-                                            <div className="text-3xl font-black">{dbUsers.filter(u=>u.role==='siswa').length}</div>
-                                        </div>
-                                    </div>
+  // --- STUDENT VIEW ---
+  if (view === 'dashboard' && userData?.role === 'siswa') {
+    const myModules = modules.filter(m => m.kelas === userData.kelas);
+    
+    return (
+      <Layout>
+        <div className="bg-gradient-to-r from-red-600 to-red-500 text-white p-8 rounded-3xl mb-8 relative overflow-hidden shadow-lg">
+          <div className="relative z-10">
+            <h2 className="text-3xl font-bold mb-1">Halo, {userData.name.split(' ')[0]}! 👋</h2>
+            <p className="opacity-90">Siap belajar Pancasila hari ini?</p>
+            <div className="mt-4 inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-lg text-sm font-bold">
+              <Award size={16}/> Skor Kamu: {userData.scores ? Math.round(Object.values(userData.scores).reduce((a,b)=>a+b,0)/Object.values(userData.scores).length || 0) : 0}
+            </div>
+          </div>
+          <div className="absolute right-0 bottom-0 text-9xl opacity-20 transform translate-y-4">🇮🇩</div>
+        </div>
 
-                                    <div className="bg-white p-6 rounded-3xl border">
-                                        <h3 className="font-bold text-lg mb-4">👥 Daftar Siswa</h3>
-                                        <div className="space-y-2">
-                                            {dbUsers.filter(u=>u.role==='siswa').map(s => (
-                                                <div key={s.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                                                    <div>
-                                                        <div className="font-bold">{s.name}</div>
-                                                        <div className="text-xs text-slate-500">{s.kelas} {s.jurusan}</div>
-                                                    </div>
-                                                    <div className="flex gap-2 items-center">
-                                                        <span className="font-bold text-slate-700 bg-white px-2 py-1 rounded border">
-                                                            {s.scores && Object.values(s.scores).length > 0 
-                                                                ? Math.round(Object.values(s.scores).reduce((a,b)=>a+b,0)/Object.values(s.scores).length) 
-                                                                : '-'}
-                                                        </span>
-                                                        <button onClick={()=>deleteSiswa(s.id)} className="text-red-400 hover:text-red-600">🗑</button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {dbUsers.filter(u=>u.role==='siswa').length === 0 && <p className="text-center text-slate-400 italic">Belum ada siswa.</p>}
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div>
-                                    <h3 className="font-bold text-lg mb-4">📚 Materi Kelas {user.kelas}</h3>
-                                    <div className="grid md:grid-cols-3 gap-4">
-                                        {Object.values(modulData).filter(m => m.kelas.includes(user.kelas)).map(m => (
-                                            <div key={m.id} onClick={()=>{setSelectedModul(m); setView('detail')}} className="bg-white p-6 rounded-2xl border hover:shadow-lg cursor-pointer transition-all">
-                                                <div className="text-4xl mb-4">📖</div>
-                                                <h4 className="font-bold mb-1">{m.title}</h4>
-                                                <div className="text-xs text-slate-400 font-bold uppercase">{m.durasi}</div>
-                                                <div className="mt-4 text-sm font-bold text-blue-600">Buka Materi →</div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-                        </main>
-                    </div>
-                );
-            };
+        <h3 className="font-bold text-xl mb-4 text-slate-800 flex items-center gap-2"><Book className="text-red-600"/> Materi Kelas {userData.kelas}</h3>
+        
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {myModules.length > 0 ? myModules.map(m => (
+            <div key={m.id} onClick={() => { setSelectedModule(m); setView('detail'); }} className="bg-white p-6 rounded-2xl border border-slate-200 hover:border-red-500 hover:shadow-xl cursor-pointer transition-all group relative overflow-hidden">
+               <div className="absolute top-0 right-0 bg-slate-100 text-slate-500 text-[10px] font-bold px-3 py-1 rounded-bl-xl uppercase tracking-wider group-hover:bg-red-500 group-hover:text-white transition-colors">
+                 {m.durasi} Menit
+               </div>
+               <div className="mt-4 mb-4">
+                 <h4 className="font-bold text-lg text-slate-800 group-hover:text-red-600 transition-colors line-clamp-2">{m.title}</h4>
+               </div>
+               <div className="flex items-center justify-between mt-auto pt-4 border-t border-slate-50">
+                 <span className="text-xs font-bold text-slate-400">Modul Pembelajaran</span>
+                 <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-red-500 group-hover:text-white transition-all">
+                   <ChevronLeft className="rotate-180" size={16}/>
+                 </div>
+               </div>
+            </div>
+          )) : (
+            <div className="col-span-full py-12 text-center bg-white rounded-2xl border border-dashed">
+              <p className="text-slate-400 font-bold">Belum ada materi untuk kelas {userData.kelas}</p>
+            </div>
+          )}
+        </div>
+      </Layout>
+    );
+  }
 
-            const DetailModul = () => (
-                <div className="min-h-screen bg-white">
-                     <nav className="p-4 border-b flex items-center gap-4 sticky top-0 bg-white">
-                        <button onClick={()=>setView('dashboard')} className="font-bold text-slate-500">← Kembali</button>
-                        <div className="font-bold">{selectedModul.title}</div>
-                    </nav>
-                    <div className="max-w-3xl mx-auto p-8">
-                        <div className="space-y-8">
-                            {selectedModul.konten.map((k, i) => (
-                                <div key={i}>
-                                    <h3 className="text-xl font-bold mb-2">{k.judul}</h3>
-                                    <p className="bg-slate-50 p-6 rounded-2xl text-slate-700 leading-relaxed border">{k.isi}</p>
-                                </div>
-                            ))}
-                        </div>
-                        <div className="mt-12 text-center">
-                            <button onClick={()=>{
-                                setQuizState({ modulId: selectedModul.id, idx: 0, answers: [], correct: 0 });
-                                setView('quiz');
-                            }} className="bg-slate-900 text-white px-8 py-4 rounded-full font-bold text-lg shadow-xl hover:bg-slate-800">✍️ Kerjakan Kuis</button>
-                        </div>
-                    </div>
-                </div>
-            );
+  // --- DETAIL MODUL ---
+  if (view === 'detail' && selectedModule) {
+    return (
+      <Layout>
+        <button onClick={() => setView('dashboard')} className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 mb-6 transition-colors">
+           <ChevronLeft size={20}/> Kembali
+        </button>
+        
+        <div className="bg-white rounded-3xl overflow-hidden shadow-xl border border-slate-100">
+          <div className="bg-slate-900 text-white p-8">
+            <div className="flex items-center gap-2 mb-2 opacity-70 text-sm font-bold uppercase tracking-wider">
+              <Book size={14}/> Materi Kelas {selectedModule.kelas}
+            </div>
+            <h1 className="text-3xl md:text-4xl font-black">{selectedModule.title}</h1>
+          </div>
+          
+          <div className="p-8">
+            <div className="prose prose-slate max-w-none mb-12">
+               <p className="text-lg leading-relaxed text-slate-600">{selectedModule.konten}</p>
+            </div>
+            
+            <div className="flex justify-center">
+              <button onClick={() => handleStartQuiz(selectedModule.id)} className="bg-red-600 hover:bg-red-700 text-white px-10 py-4 rounded-full font-bold text-lg shadow-lg hover:shadow-red-500/30 transition-all active:scale-95 flex items-center gap-2">
+                ✍️ Kerjakan Kuis Evaluasi
+              </button>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
-            const Quiz = () => {
-                const qData = quizData[quizState.modulId];
-                const current = qData[quizState.idx];
+  // --- QUIZ VIEW ---
+  if (view === 'quiz') {
+    const q = quizState.questions[quizState.idx];
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans">
+        <div className="bg-white w-full max-w-lg rounded-3xl p-8 relative">
+           <div className="absolute top-0 left-0 w-full h-1 bg-slate-100 rounded-t-3xl overflow-hidden">
+             <div className="h-full bg-red-500 transition-all duration-500" style={{width: `${((quizState.idx + 1) / quizState.questions.length) * 100}%`}}></div>
+           </div>
+           
+           <div className="flex justify-between items-center mb-6 mt-2">
+             <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1 rounded-full">SOAL {quizState.idx + 1} / {quizState.questions.length}</span>
+             <span className="text-xs font-bold text-red-500">PANCASILA ACADEMY</span>
+           </div>
+           
+           <h3 className="text-xl font-bold mb-8 text-slate-800 leading-snug">{q.q}</h3>
+           
+           <div className="space-y-3">
+             {q.opt.map((opt, i) => (
+               <button key={i} onClick={() => handleAnswer(i)} className="w-full text-left p-4 rounded-xl border-2 border-slate-100 font-bold text-slate-600 hover:border-red-500 hover:bg-red-50 hover:text-red-700 transition-all flex items-center gap-3 group">
+                 <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-400 flex items-center justify-center text-sm group-hover:bg-red-500 group-hover:text-white transition-colors">{String.fromCharCode(65+i)}</div>
+                 {opt}
+               </button>
+             ))}
+           </div>
+        </div>
+      </div>
+    );
+  }
 
-                const answer = async (ansIdx) => {
-                    const isCorrect = ansIdx === current.jawaban;
-                    const nextCorrect = isCorrect ? quizState.correct + 1 : quizState.correct;
-                    
-                    if(quizState.idx + 1 < qData.length) {
-                        setQuizState({ ...quizState, idx: quizState.idx + 1, correct: nextCorrect });
-                    } else {
-                        const finalScore = Math.round((nextCorrect / qData.length) * 100);
-                        
-                        // Simpan Nilai ke Firebase
-                        if(user.role === 'siswa') {
-                            const newScores = { ...user.scores, [quizState.modulId]: finalScore };
-                            await db.collection('users').doc(user.id).update({ scores: newScores });
-                            setUser({...user, scores: newScores});
-                        }
-                        
-                        setScore(finalScore);
-                        setView('result');
-                    }
-                }
+  // --- RESULT VIEW ---
+  if (view === 'result') {
+    const passed = quizState.finalScore >= 70;
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans text-center">
+        <div className="bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl relative overflow-hidden">
+           <div className={`absolute top-0 left-0 w-full h-32 ${passed ? 'bg-green-500' : 'bg-red-500'}`}></div>
+           
+           <div className="relative z-10 bg-white w-24 h-24 mx-auto rounded-full flex items-center justify-center text-5xl shadow-xl mt-12 mb-6">
+             {passed ? '🏆' : '📚'}
+           </div>
+           
+           <h2 className="text-slate-800 text-4xl font-black mb-1">{quizState.finalScore}</h2>
+           <p className="text-slate-400 font-bold text-sm uppercase tracking-wider mb-8">{passed ? 'Lulus Kompetensi' : 'Perlu Belajar Lagi'}</p>
+           
+           <div className="bg-slate-50 rounded-xl p-4 mb-6 text-sm text-slate-500">
+             {passed ? "Kerja bagus! Baginda Raja pasti bangga." : "Jangan menyerah, coba baca materi sekali lagi."}
+           </div>
 
-                return (
-                    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-                        <div className="bg-white w-full max-w-lg rounded-3xl p-8">
-                            <div className="text-sm font-bold text-slate-400 mb-2">SOAL {quizState.idx + 1} / {qData.length}</div>
-                            <h3 className="text-xl font-bold mb-8">{current.pertanyaan}</h3>
-                            <div className="space-y-3">
-                                {current.pilihan.map((p, i) => (
-                                    <button key={i} onClick={()=>answer(i)} className="w-full text-left p-4 border rounded-xl font-medium hover:bg-slate-100 transition-colors">
-                                        <span className="font-bold mr-2 text-slate-400">{String.fromCharCode(65+i)}.</span> {p}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                );
-            };
+           <button onClick={() => setView('dashboard')} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold hover:bg-slate-800 shadow-lg">
+             Kembali ke Dashboard
+           </button>
+        </div>
+      </div>
+    );
+  }
 
-            const Result = () => (
-                <div className="min-h-screen bg-slate-800 flex items-center justify-center p-4 text-white text-center">
-                    <div>
-                        <div className="text-6xl mb-4">{score >= 70 ? '🏆' : '⚠️'}</div>
-                        <h2 className="text-4xl font-black mb-2">{score}</h2>
-                        <p className="mb-8 opacity-70">{score >= 70 ? 'Lulus Kompetensi!' : 'Belajar lagi ya...'}</p>
-                        <button onClick={()=>setView('dashboard')} className="bg-white text-slate-900 px-8 py-3 rounded-full font-bold">Ke Dashboard</button>
-                    </div>
-                </div>
-            );
+  return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400 font-bold">Memuat Aplikasi...</div>;
+};
 
-            if (view === 'login') return <LoginView />;
-            if (view === 'register') return <RegisterView />;
-            if (view === 'dashboard') return <Dashboard />;
-            if (view === 'detail') return <DetailModul />;
-            if (view === 'quiz') return <Quiz />;
-            if (view === 'result') return <Result />;
-            return <div>Loading...</div>;
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-
-</html>
-
+export default App;
