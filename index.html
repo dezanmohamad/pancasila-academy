@@ -73,7 +73,7 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, signOut, updateProfile } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
         import { getFirestore, collection, doc, setDoc, addDoc, getDocs, onSnapshot, query, updateDoc, deleteDoc, where } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-        import { Book, User, Award, LogOut, Plus, Trash2, CheckCircle, XCircle, ChevronLeft, ChevronDown, Shield, Search, Filter, FileText, Download, Pencil, Eye, Users, ClipboardList, LayoutGrid, Key, X, Edit, RefreshCw, Upload, BarChart2, PieChart as PieIcon, TrendingUp, HelpCircle, Sparkles, Bot, Loader2, AlertTriangle, Trophy, Star, Crown, NotebookPen, Calendar, Printer, Image as ImageIcon } from 'https://esm.sh/lucide-react@0.344.0?deps=react@18.3.1';
+        import { Book, User, Award, LogOut, Plus, Trash2, CheckCircle, XCircle, ChevronLeft, ChevronDown, Shield, Search, Filter, FileText, Download, Pencil, Eye, Users, ClipboardList, LayoutGrid, Key, X, Edit, RefreshCw, Upload, BarChart2, PieChart as PieIcon, TrendingUp, HelpCircle, Sparkles, Bot, Loader2, AlertTriangle, Trophy, Star, Crown, NotebookPen, Calendar, Printer, Image as ImageIcon, PenTool } from 'https://esm.sh/lucide-react@0.344.0?deps=react@18.3.1';
         import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Area, AreaChart } from 'https://esm.sh/recharts@2.12.7?deps=react@18.3.1,react-dom@18.3.1';
 
         // --- KONFIGURASI FIREBASE ---
@@ -136,6 +136,7 @@
             const [loadingState, setLoadingState] = useState(true);
             const [loadingTooLong, setLoadingTooLong] = useState(false);
             const fileInputRef = useRef(null);
+            const signatureInputRef = useRef(null); // Ref untuk input TTD
 
             if (!isConfigured) return <div className="min-h-screen flex items-center justify-center bg-slate-100 text-slate-600 p-4"><div className="max-w-md text-center space-y-4"><h1 className="text-4xl font-black text-red-500">⚠️ ERROR</h1><p className="text-lg">Gagal menghubungkan ke Firebase.</p></div></div>;
 
@@ -346,6 +347,30 @@
                     reader.readAsDataURL(file);
                 }
             };
+            
+            // --- SIGNATURE HANDLER (NEW) ---
+            const handleSignatureUpload = async (e) => {
+                const file = e.target.files[0];
+                if(file) {
+                    if(file.size > 500 * 1024) return showNotif("Ukuran file TTD maksimal 500KB", "error");
+                    const reader = new FileReader();
+                    reader.onload = async (ev) => {
+                        const signatureBase64 = ev.target.result;
+                        try {
+                            // Update user profile in Firestore
+                            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
+                                signature: signatureBase64
+                            });
+                            // Update local state
+                            setUserData(prev => ({...prev, signature: signatureBase64}));
+                            showNotif("Tanda tangan berhasil disimpan!", "success");
+                        } catch (err) {
+                            showNotif("Gagal menyimpan tanda tangan", "error");
+                        }
+                    };
+                    reader.readAsDataURL(file);
+                }
+            };
 
             const handleSaveJournal = async () => {
                 if(!journalForm.date || !journalForm.topic || !journalForm.notes) return showNotif("Mohon lengkapi semua data jurnal!", "error");
@@ -373,6 +398,11 @@
 
                 const printWindow = window.open('', '_blank');
                 if (!printWindow) return showNotif("Pop-up diblokir. Izinkan pop-up untuk mencetak.", "error");
+                
+                // Construct Signature HTML
+                const signatureHtml = userData.signature 
+                    ? `<img src="${userData.signature}" style="height: 60px; display: block; margin: 0 auto 5px auto;" alt="ttd"/>`
+                    : `<div style="height: 60px;"></div>`;
 
                 const content = `
                     <!DOCTYPE html>
@@ -402,7 +432,7 @@
                             
                             .footer-signature { margin-top: 50px; text-align: right; }
                             .sign-box { display: inline-block; text-align: center; min-width: 200px; }
-                            .sign-name { margin-top: 70px; font-weight: bold; text-decoration: underline; }
+                            .sign-name { margin-top: 5px; font-weight: bold; text-decoration: underline; }
                         </style>
                     </head>
                     <body>
@@ -447,6 +477,8 @@
                             <div class="sign-box">
                                 <p>Bandung, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
                                 <p>Guru Mata Pelajaran,</p>
+                                <br/>
+                                ${signatureHtml}
                                 <div class="sign-name">${userData?.name}</div>
                             </div>
                         </div>
@@ -761,9 +793,15 @@
                                     <div className="md:col-span-2 space-y-4">
                                         <div className="flex justify-between items-center mb-4">
                                             <h3 className="font-bold text-xl text-slate-700">Riwayat Jurnal</h3>
-                                            <button onClick={handleExportJournal} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-50 shadow-sm">
-                                                <Printer size={16}/> Cetak / PDF
-                                            </button>
+                                            <div className="flex gap-2">
+                                                <label className="cursor-pointer bg-blue-100 text-blue-600 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-200 shadow-sm" title="Upload Tanda Tangan">
+                                                    <PenTool size={16}/> Atur Tanda Tangan
+                                                    <input type="file" accept="image/*" className="hidden" onChange={handleSignatureUpload} />
+                                                </label>
+                                                <button onClick={handleExportJournal} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-50 shadow-sm">
+                                                    <Printer size={16}/> Cetak / PDF
+                                                </button>
+                                            </div>
                                         </div>
                                         {journals.length === 0 ? (
                                             <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed text-slate-400 italic">Belum ada catatan jurnal.</div>
