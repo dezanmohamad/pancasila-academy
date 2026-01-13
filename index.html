@@ -73,7 +73,7 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, signOut, updateProfile } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
         import { getFirestore, collection, doc, setDoc, addDoc, getDocs, onSnapshot, query, updateDoc, deleteDoc, where } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-        import { Book, User, Award, LogOut, Plus, Trash2, CheckCircle, XCircle, ChevronLeft, ChevronDown, Shield, Search, Filter, FileText, Download, Pencil, Eye, Users, ClipboardList, LayoutGrid, Key, X, Edit, RefreshCw, Upload, BarChart2, PieChart as PieIcon, TrendingUp, HelpCircle, Sparkles, Bot, Loader2, AlertTriangle, Trophy, Star, Crown } from 'https://esm.sh/lucide-react@0.344.0?deps=react@18.3.1';
+        import { Book, User, Award, LogOut, Plus, Trash2, CheckCircle, XCircle, ChevronLeft, ChevronDown, Shield, Search, Filter, FileText, Download, Pencil, Eye, Users, ClipboardList, LayoutGrid, Key, X, Edit, RefreshCw, Upload, BarChart2, PieChart as PieIcon, TrendingUp, HelpCircle, Sparkles, Bot, Loader2, AlertTriangle, Trophy, Star, Crown, NotebookPen, Calendar, Printer, Image as ImageIcon } from 'https://esm.sh/lucide-react@0.344.0?deps=react@18.3.1';
         import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Area, AreaChart } from 'https://esm.sh/recharts@2.12.7?deps=react@18.3.1,react-dom@18.3.1';
 
         // --- KONFIGURASI FIREBASE ---
@@ -144,33 +144,46 @@
             const [view, setView] = useState('login');
             const [error, setError] = useState('');
             const [notification, setNotification] = useState(null);
+            const [isSubmitting, setIsSubmitting] = useState(false); // New state for button loading
+            
+            // Data States
             const [modules, setModules] = useState([]);
             const [selectedModule, setSelectedModule] = useState(null);
             const [students, setStudents] = useState([]);
+            const [journals, setJournals] = useState([]); 
             
+            // Filter & Search
             const [searchTerm, setSearchTerm] = useState('');
             const [filterClass, setFilterClass] = useState('Semua');
-            const [filterJurusan, setFilterJurusan] = useState('Semua'); // New State untuk Jurusan
+            const [filterJurusan, setFilterJurusan] = useState('Semua'); 
             const [selectedStudent, setSelectedStudent] = useState(null); 
+            
+            // Auth & Forms
             const [authMode, setAuthMode] = useState('siswa');
             const [form, setForm] = useState({ username: '', password: '', fullname: '', kelas: 'X', jurusan: 'ULP', teacherCode: '' });
-            const [quizState, setQuizState] = useState({ idx: 0, correct: 0, answers: [] });
-            const [teacherTab, setTeacherTab] = useState('menu'); 
             
-            // State Materi & Soal Kuis
+            // Quiz State
+            const [quizState, setQuizState] = useState({ idx: 0, correct: 0, answers: [] });
+            
+            // Guru States
+            const [teacherTab, setTeacherTab] = useState('menu'); 
             const [newMateri, setNewMateri] = useState({ title: '', kelas: 'X', durasi: '', konten: '', questions: [] });
             const [tempQuestion, setTempQuestion] = useState({ q: '', opt: ['', '', '', ''], ans: 0 });
             const [editingId, setEditingId] = useState(null); 
             const [studentModalOpen, setStudentModalOpen] = useState(false);
             const [editingStudentId, setEditingStudentId] = useState(null);
             const [studentForm, setStudentForm] = useState({ name: '', username: '', password: '', kelas: 'X', jurusan: 'ULP' });
+            
+            // Jurnal State (UPDATED: Added image)
+            const [journalForm, setJournalForm] = useState({ date: '', kelas: 'X', jurusan: 'ULP', topic: '', notes: '', image: null });
 
-            // State AI Generator & Konfirmasi Modal
+            // AI & Modal
             const [aiPrompt, setAiPrompt] = useState('');
             const [isGenerating, setIsGenerating] = useState(false);
             const [aiStatus, setAiStatus] = useState('');
             const [confirmModal, setConfirmModal] = useState({ open: false, title: '', msg: '', onConfirm: null });
 
+            // Init Auth
             useEffect(() => {
                 const timer = setTimeout(() => { if (loadingState) setLoadingTooLong(true); }, 10000);
                 const initAuth = async () => { try { await signInAnonymously(auth); } catch (err) { console.error("Auth Error:", err); setError("Gagal inisialisasi Auth."); } };
@@ -179,36 +192,36 @@
                 return () => { unsubscribe(); clearTimeout(timer); };
             }, []);
 
+            // Data Listeners
             useEffect(() => { 
                 if (!user || !db) return; 
-                // Fix: Jangan panggil setView di sini agar tidak konflik dengan navigasi manual
                 const unsub = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), (s) => { 
-                    if(s.exists()) { 
-                        setUserData(s.data()); 
-                    } 
+                    if(s.exists()) { setUserData(s.data()); } 
                 }); 
                 return () => unsub(); 
             }, [user]);
             
             useEffect(() => { if(!user || !db) return; const unsub = onSnapshot(query(collection(db, 'artifacts', appId, 'public', 'data', 'modules')), (s) => { const f = s.docs.map(d => ({id: d.id, ...d.data()})); setModules([...defaultModules.filter(dm => !f.find(f => f.id === dm.id)), ...f]); }); return () => unsub(); }, [user]);
             useEffect(() => { 
-                if(!user || !userData || !db) return; // Allow both guru and siswa
+                if(!user || !userData || !db) return; 
                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'), where('role', '==', 'siswa'));
-                const unsub = onSnapshot(q, (s) => {
-                    setStudents(s.docs.map(d => ({id: d.id, ...d.data()})));
-                });
+                const unsub = onSnapshot(q, (s) => { setStudents(s.docs.map(d => ({id: d.id, ...d.data()}))); });
+                return () => unsub();
+            }, [user, userData]);
+            useEffect(() => {
+                if(!user || !userData || userData.role !== 'guru' || !db) return;
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'journals'));
+                const unsub = onSnapshot(q, (s) => { setJournals(s.docs.map(d => ({id: d.id, ...d.data()}))); });
                 return () => unsub();
             }, [user, userData]);
 
             const showNotif = (msg, type = 'success') => { setNotification({ msg, type }); setTimeout(() => setNotification(null), 3000); };
             
-            // --- FIX LOGOUT: Reset Form State ---
             const handleLogout = async () => { 
                 try { 
                     await signOut(auth); 
                     setUser(null); 
                     setUserData(null); 
-                    // Reset form login agar kosong
                     setForm({ username: '', password: '', fullname: '', kelas: 'X', jurusan: 'ULP', teacherCode: '' });
                     setView('login'); 
                     setTeacherTab('menu'); 
@@ -237,6 +250,9 @@
             const handleRegister = async () => { 
                 if (!form.username || !form.password || !form.fullname) return setError("Semua kolom wajib diisi!"); 
                 if (authMode === 'guru' && form.teacherCode !== 'PANCA2024') return setError("Kode Guru Salah!");
+                
+                setIsSubmitting(true);
+                setError('');
 
                 try { 
                     let currentUser = user;
@@ -267,10 +283,16 @@
                     showNotif("Pendaftaran Berhasil!", "success"); 
                 } catch (e) { 
                     setError(e.message); 
-                } 
+                } finally {
+                    setIsSubmitting(false);
+                }
             };
 
             const handleLogin = async () => { 
+                if (!form.username || !form.password) return setError("Username dan Password wajib diisi.");
+                setIsSubmitting(true);
+                setError('');
+
                 try { 
                     if (!user) {
                         const authResult = await signInAnonymously(auth);
@@ -280,14 +302,16 @@
                     const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'), where('username', '==', form.username), where('password', '==', form.password), where('role', '==', authMode)); 
                     const s = await getDocs(q); 
                     if (s.empty) {
-                        setError("Login Gagal. Cek username/password."); 
+                        setError("Login Gagal. Cek username/password/peran."); 
                     } else { 
                         setUserData(s.docs[0].data()); 
                         setView('dashboard'); 
                     } 
                 } catch (e) { 
                     setError("Kesalahan koneksi atau database."); 
-                } 
+                } finally {
+                    setIsSubmitting(false);
+                }
             };
             
             const handleSaveMateri = async () => { 
@@ -312,35 +336,138 @@
             const openEditStudentModal = (s) => { setEditingStudentId(s.id); setStudentForm(s); setStudentModalOpen(true); };
             const handleSaveStudent = async () => { if(!studentForm.name) return; try { const d = {...studentForm, role:'siswa'}; if(editingStudentId) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', editingStudentId), d); else await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', 'student_'+Date.now()), {...d, scores:{}, createdAt: new Date().toISOString()}); showNotif("Tersimpan"); setStudentModalOpen(false); } catch(e){showNotif("Gagal","error")} };
             
-            const openConfirm = (title, msg, onConfirm) => {
-                setConfirmModal({ open: true, title, msg, onConfirm });
+            // JURNAL HANDLERS (UPDATED WITH IMAGE & JURUSAN)
+            const handleJournalImageChange = (e) => {
+                const file = e.target.files[0];
+                if(file) {
+                    if(file.size > 500 * 1024) return showNotif("Ukuran foto maksimal 500KB", "error");
+                    const reader = new FileReader();
+                    reader.onload = (ev) => setJournalForm(prev => ({...prev, image: ev.target.result}));
+                    reader.readAsDataURL(file);
+                }
             };
 
-            const handleConfirmAction = () => {
-                if (confirmModal.onConfirm) confirmModal.onConfirm();
-                setConfirmModal({ ...confirmModal, open: false });
+            const handleSaveJournal = async () => {
+                if(!journalForm.date || !journalForm.topic || !journalForm.notes) return showNotif("Mohon lengkapi semua data jurnal!", "error");
+                try {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'journals'), {
+                        ...journalForm,
+                        createdAt: new Date().toISOString()
+                    });
+                    showNotif("Jurnal berhasil disimpan!", "success");
+                    setJournalForm({ date: '', kelas: 'X', jurusan: 'ULP', topic: '', notes: '', image: null });
+                } catch(e) {
+                    showNotif("Gagal menyimpan jurnal.", "error");
+                }
             };
 
-            const handleDeleteModul = (id) => {
-                openConfirm("Hapus Modul?", "Modul yang dihapus tidak dapat dikembalikan.", async () => {
-                    try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'modules', id)); showNotif("Modul berhasil dihapus"); }
-                    catch(e) { showNotif("Gagal menghapus modul", "error"); }
-                });
-            };
-
-            const handleResetPassword = (id) => {
-                openConfirm("Reset Password?", "Password akan direset menjadi '123456'.", async () => {
-                    try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id), {password:'123456'}); showNotif("Password direset"); }
-                    catch(e) { showNotif("Gagal reset password", "error"); }
-                });
-            };
-
-            const handleDeleteSiswa = (id) => {
-                openConfirm("Hapus Siswa?", "Data siswa dan nilai akan hilang permanen.", async () => {
-                    try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id)); showNotif("Siswa dihapus"); }
+            const handleDeleteJournal = (id) => {
+                openConfirm("Hapus Jurnal?", "Jurnal ini akan dihapus permanen.", async () => {
+                    try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'journals', id)); showNotif("Jurnal dihapus"); }
                     catch(e) { showNotif("Gagal menghapus", "error"); }
                 });
             };
+
+            const handleExportJournal = () => {
+                if (journals.length === 0) return showNotif("Belum ada data jurnal untuk diekspor", "error");
+
+                const printWindow = window.open('', '_blank');
+                if (!printWindow) return showNotif("Pop-up diblokir. Izinkan pop-up untuk mencetak.", "error");
+
+                const content = `
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Jurnal Mengajar - SILA</title>
+                        <style>
+                            body { font-family: 'Times New Roman', serif; padding: 40px; font-size: 14px; line-height: 1.6; }
+                            h1, h2, h3 { text-align: center; margin: 5px 0; }
+                            h1 { font-size: 18px; font-weight: bold; text-transform: uppercase; }
+                            h2 { font-size: 16px; font-weight: bold; }
+                            .header-line { border-bottom: 3px double black; margin-top: 15px; margin-bottom: 30px; }
+                            
+                            .teacher-info { margin-bottom: 25px; }
+                            .teacher-info p { margin: 3px 0; }
+
+                            .journal-entry { border: 1px solid #000; margin-bottom: 25px; page-break-inside: avoid; }
+                            .entry-header { background-color: #f0f0f0; border-bottom: 1px solid #000; padding: 8px 15px; display: flex; justify-content: space-between; font-weight: bold; border-top: 2px solid #000; border-left: 2px solid #000; border-right: 2px solid #000; }
+                            .entry-body { padding: 15px; border-left: 2px solid #000; border-right: 2px solid #000; border-bottom: 2px solid #000; display: flex; gap: 20px; }
+                            
+                            .content-section { flex: 1; }
+                            .image-section { width: 150px; flex-shrink: 0; }
+                            .journal-img { width: 100%; height: auto; border: 1px solid #ccc; padding: 2px; }
+
+                            .section-title { font-weight: bold; text-decoration: underline; margin-bottom: 5px; display: block; }
+                            .content-block { margin-bottom: 15px; }
+                            
+                            .footer-signature { margin-top: 50px; text-align: right; }
+                            .sign-box { display: inline-block; text-align: center; min-width: 200px; }
+                            .sign-name { margin-top: 70px; font-weight: bold; text-decoration: underline; }
+                        </style>
+                    </head>
+                    <body>
+                        <h1>JURNAL KEGIATAN PEMBELAJARAN</h1>
+                        <h2>PENDIDIKAN PANCASILA</h2>
+                        <h1>SMK AL-WAFA</h1>
+                        <div class="header-line"></div>
+
+                        <div class="teacher-info">
+                            <p><strong>Nama Guru:</strong> ${userData?.name}</p>
+                            <p><strong>Tahun Pelajaran:</strong> ${new Date().getFullYear()}/${new Date().getFullYear()+1}</p>
+                        </div>
+
+                        ${journals.sort((a,b) => new Date(b.date) - new Date(a.date)).map(j => `
+                            <div class="journal-entry">
+                                <div class="entry-header">
+                                    <span>HARI/TANGGAL: ${new Date(j.date).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase()}</span>
+                                    <span>KELAS: ${j.kelas} ${j.jurusan || ''}</span>
+                                </div>
+                                <div class="entry-body">
+                                    <div class="content-section">
+                                        <div class="content-block">
+                                            <span class="section-title">MATERI POKOK / TOPIK:</span>
+                                            ${j.topic}
+                                        </div>
+                                        <div class="content-block">
+                                            <span class="section-title">CATATAN KEGIATAN & REFLEKSI:</span>
+                                            <div style="white-space: pre-wrap;">${j.notes}</div>
+                                        </div>
+                                    </div>
+                                    ${j.image ? `
+                                    <div class="image-section">
+                                        <span class="section-title" style="font-size: 0.8em; margin-bottom: 2px;">DOKUMENTASI:</span>
+                                        <img src="${j.image}" class="journal-img" alt="Dokumentasi"/>
+                                    </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+
+                        <div class="footer-signature">
+                            <div class="sign-box">
+                                <p>Bandung, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                                <p>Guru Mata Pelajaran,</p>
+                                <div class="sign-name">${userData?.name}</div>
+                            </div>
+                        </div>
+
+                        <script>
+                            window.onload = function() { window.print(); }
+                        <\/script>
+                    </body>
+                    </html>
+                `;
+
+                printWindow.document.write(content);
+                printWindow.document.close();
+            };
+
+            const openConfirm = (title, msg, onConfirm) => { setConfirmModal({ open: true, title, msg, onConfirm }); };
+            const handleConfirmAction = () => { if (confirmModal.onConfirm) confirmModal.onConfirm(); setConfirmModal({ ...confirmModal, open: false }); };
+
+            const handleDeleteModul = (id) => { openConfirm("Hapus Modul?", "Permanen.", async () => { try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'modules', id)); showNotif("Terhapus"); } catch(e) { showNotif("Gagal", "error"); } }); };
+            const handleResetPassword = (id) => { openConfirm("Reset Password?", "Jadi 123456.", async () => { try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id), {password:'123456'}); showNotif("Direset"); } catch(e) { showNotif("Gagal", "error"); } }); };
+            const handleDeleteSiswa = (id) => { openConfirm("Hapus Siswa?", "Permanen.", async () => { try { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', id)); showNotif("Terhapus"); } catch(e) { showNotif("Gagal", "error"); } }); };
 
             const handleDownloadCSV = () => { const header = "Nama,Kelas,Rata2\n"; const rows = students.map(s => `${s.name},${s.kelas},${s.scores?Math.round(Object.values(s.scores).reduce((a,b)=>a+b,0)/Object.values(s.scores).length):0}`).join("\n"); const link = document.createElement("a"); link.href = encodeURI("data:text/csv;charset=utf-8,"+header+rows); link.download = "rekap.csv"; link.click(); };
             const handleStartQuiz = (mid) => { 
@@ -350,7 +477,6 @@
                 setView('quiz'); 
             };
             
-            // --- FIX: HANDLE ANSWER - UPDATE LOCAL & DB IMMEDIATELY ---
             const handleAnswer = async (idx) => {
                 const isCorrect = idx === quizState.questions[quizState.idx].ans;
                 const nc = isCorrect ? quizState.correct + 1 : quizState.correct;
@@ -360,25 +486,17 @@
                 } else {
                     const finalScore = Math.round((nc / quizState.questions.length) * 100);
                     
-                    // 1. UPDATE STATE LOKAL (Agar grafik langsung berubah)
                     if (userData) {
                         const newScores = { ...(userData.scores || {}), [quizState.modulId]: finalScore };
-                        const updatedUser = { ...userData, scores: newScores };
-                        setUserData(updatedUser); // Update tampilan langsung
-                        
-                        // 2. UPDATE DATABASE DI BACKGROUND
+                        setUserData({ ...userData, scores: newScores }); 
                         if (userData.role === 'siswa') {
                             try {
                                 const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'), where('username', '==', userData.username));
                                 const s = await getDocs(q);
-                                if (!s.empty) {
-                                    // Update dokumen di Firestore
-                                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', s.docs[0].id), { scores: newScores });
-                                }
+                                if (!s.empty) await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', s.docs[0].id), { scores: newScores });
                             } catch (e) { console.error("Gagal simpan DB", e); }
                         }
                     }
-                    
                     setQuizState({ ...quizState, finalScore });
                     setView('result');
                 }
@@ -399,111 +517,32 @@
                 if (!userData || !userData.scores) return []; 
                 return modules.map(m => ({ 
                     name: m.title.length > 10 ? m.title.substring(0, 10) + '...' : m.title, 
-                    nilai: userData.scores[m.id] || 0, // Mengambil nilai dari state lokal yang sudah diupdate
+                    nilai: userData.scores[m.id] || 0, 
                     full: m.title 
                 })); 
             }, [userData, modules]);
 
-            // --- AI GENERATOR FUNCTION (LEBIH MENDALAM SESUAI DISIPLIN ILMU) ---
             const handleAIGenerate = () => {
                 if(!aiPrompt) return showNotif("Baginda, tolong isi topiknya dulu.", "error");
                 setIsGenerating(true);
                 setAiStatus('Menganalisis Topik Secara Akademis...');
-                
-                // SIMULASI AI GENERATION YANG LEBIH MENDALAM
                 setTimeout(() => { setAiStatus('Menyusun Kerangka Teoritis...'); }, 2000);
                 setTimeout(() => { setAiStatus('Mengembangkan Argumen & Studi Kasus...'); }, 4500);
                 setTimeout(() => { setAiStatus('Finalisasi Konten & Kuis Kompetensi...'); }, 7500);
-
                 setTimeout(async () => {
                     const topic = aiPrompt.toUpperCase();
-                    // KONTEN MATERI BERDIRI SENDIRI (STAND-ALONE ACADEMIC CONTENT)
-                    const generatedContent = `
-# MODUL PEMBELAJARAN: ${topic}
-
-## 1. PENGANTAR & DEFINISI
-${topic} merupakan konsep fundamental yang menjadi pilar utama dalam pemahaman kita mengenai dinamika sosial dan kenegaraan saat ini. 
-* **Definisi Operasional:** Secara umum, ${topic} merujuk pada sistem atau tatanan yang mengatur pola interaksi, hak, dan kewajiban dalam suatu entitas.
-* **Urgensi:** Mempelajari ${topic} sangat krusial untuk membangun pemikiran kritis dan kesadaran sipil (civic awareness) yang matang.
-
-## 2. RUANG LINGKUP & KONSEP UTAMA
-Dalam disiplin ilmunya, ${topic} memiliki beberapa dimensi penting:
-1.  **Aspek Filosofis:** Apa hakikat dasar dari ${topic}? Mengapa ia eksis? Ini berkaitan dengan tujuan fundamental untuk mencapai keteraturan dan keadilan.
-2.  **Aspek Sosiologis:** Bagaimana ${topic} bekerja di tengah masyarakat? Ia tidak berada di ruang hampa, melainkan berinteraksi dengan budaya, ekonomi, dan politik.
-3.  **Aspek Yuridis/Normatif:** Landasan aturan main yang mengikat terkait ${topic}.
-
-## 3. FUNGSI DAN TUJUAN
-Mengapa kita membutuhkan ${topic}?
-* **Regulasi Sosial:** Sebagai alat pengendali agar tidak terjadi chaos atau anarki.
-* **Resolusi Konflik:** Menyediakan mekanisme penyelesaian sengketa yang beradab.
-* **Rekayasa Sosial (Social Engineering):** Mengarahkan masyarakat menuju perubahan yang lebih progresif dan modern.
-
-## 4. STUDI KASUS & PENERAPAN NYATA
-Mari kita lihat bagaimana ${topic} bekerja dalam realita:
-* **Kasus A (Lingkungan Mikro):** Dalam organisasi kecil atau sekolah, ${topic} terlihat pada bagaimana aturan dibuat dan disepakati bersama demi kepentingan anggota.
-* **Kasus B (Lingkungan Makro):** Dalam skala negara, ${topic} tercermin dalam kebijakan publik dan penegakan hukum yang tidak pandang bulu.
-
-## 5. TANTANGAN KONTEMPORER (MASA KINI)
-Di era disrupsi digital, ${topic} menghadapi tantangan baru:
-* **Validitas Informasi:** Hoaks dan misinformasi dapat mendistorsi pemahaman publik tentang ${topic}.
-* **Adaptasi Teknologi:** Bagaimana ${topic} beradaptasi dengan kecerdasan buatan dan otomatisasi?
-* **Etika & Moralitas:** Memastikan kemajuan tidak menggerus nilai-nilai dasar kemanusiaan dalam praktik ${topic}.
-
-## 6. PENUTUP
-Pemahaman terhadap **${topic}** tidak boleh berhenti di hafalan definisi. Ia menuntut aksi nyata, integritas, dan kompetensi untuk menerapkannya demi kemaslahatan bersama.
-`.trim();
-                    
-                    // SOAL KUIS YANG LEBIH AKADEMIS
+                    const generatedContent = `# MODUL PEMBELAJARAN: ${topic}\n\n## 1. PENGANTAR & DEFINISI\n${topic} merupakan konsep fundamental yang menjadi pilar utama dalam pemahaman kita mengenai dinamika sosial dan kenegaraan saat ini.\n* **Definisi Operasional:** Secara umum, ${topic} merujuk pada sistem atau tatanan yang mengatur pola interaksi, hak, dan kewajiban dalam suatu entitas.\n* **Urgensi:** Mempelajari ${topic} sangat krusial untuk membangun pemikiran kritis dan kesadaran sipil (civic awareness) yang matang.\n\n## 2. RUANG LINGKUP & KONSEP UTAMA\nDalam disiplin ilmunya, ${topic} memiliki beberapa dimensi penting:\n1. **Aspek Filosofis:** Apa hakikat dasar dari ${topic}? Mengapa ia eksis? Ini berkaitan dengan tujuan fundamental untuk mencapai keteraturan dan keadilan.\n2. **Aspek Sosiologis:** Bagaimana ${topic} bekerja di tengah masyarakat? Ia tidak berada di ruang hampa, melainkan berinteraksi dengan budaya, ekonomi, dan politik.\n3. **Aspek Yuridis/Normatif:** Landasan aturan main yang mengikat terkait ${topic}.\n\n## 3. FUNGSI DAN TUJUAN\nMengapa kita membutuhkan ${topic}?\n* **Regulasi Sosial:** Sebagai alat pengendali agar tidak terjadi chaos atau anarki.\n* **Resolusi Konflik:** Menyediakan mekanisme penyelesaian sengketa yang beradab.\n* **Rekayasa Sosial (Social Engineering):** Mengarahkan masyarakat menuju perubahan yang lebih progresif dan modern.\n\n## 4. STUDI KASUS & PENERAPAN NYATA\nMari kita lihat bagaimana ${topic} bekerja dalam realita:\n* **Kasus A (Lingkungan Mikro):** Dalam organisasi kecil atau sekolah, ${topic} terlihat pada bagaimana aturan dibuat dan disepakati bersama demi kepentingan anggota.\n* **Kasus B (Lingkungan Makro):** Dalam skala negara, ${topic} tercermin dalam kebijakan publik dan penegakan hukum yang tidak pandang bulu.\n\n## 5. TANTANGAN KONTEMPORER (MASA KINI)\nDi era disrupsi digital, ${topic} menghadapi tantangan baru:\n* **Validitas Informasi:** Hoaks dan misinformasi dapat mendistorsi pemahaman publik tentang ${topic}.\n* **Adaptasi Teknologi:** Bagaimana ${topic} beradaptasi dengan kecerdasan buatan dan otomatisasi?\n* **Etika & Moralitas:** Memastikan kemajuan tidak menggerus nilai-nilai dasar kemanusiaan dalam praktik ${topic}.\n\n## 6. PENUTUP\nPemahaman terhadap **${topic}** tidak boleh berhenti di hafalan definisi. Ia menuntut aksi nyata, integritas, dan kompetensi untuk menerapkannya demi kemaslahatan bersama.`;
                     const generatedQuestions = [
-                        { 
-                            q: `Apa fungsi utama dari ${topic} dalam konteks regulasi sosial menurut materi di atas?`, 
-                            opt: [
-                                'Hanya untuk membatasi kebebasan individu', 
-                                'Sebagai alat pengendali untuk mencegah kekacauan (chaos)', 
-                                'Untuk kepentingan penguasa semata', 
-                                'Tidak memiliki fungsi yang jelas'
-                            ], 
-                            ans: 1 
-                        },
-                        { 
-                            q: `Manakah tantangan kontemporer yang dihadapi oleh ${topic} di era digital?`, 
-                            opt: [
-                                'Kurangnya sumber daya manusia', 
-                                'Mahalnya biaya pendidikan', 
-                                'Distorsi informasi akibat hoaks dan misinformasi', 
-                                'Kelebihan pasokan tenaga kerja'
-                            ], 
-                            ans: 2 
-                        },
-                        { 
-                            q: `Dalam aspek filosofis, pertanyaan mendasar apa yang berkaitan dengan ${topic}?`, 
-                            opt: [
-                                'Berapa biaya yang dibutuhkan?', 
-                                'Apa hakikat dasar dan tujuan eksistensinya?', 
-                                'Siapa tokoh yang menemukannya?', 
-                                'Kapan pertama kali istilah ini muncul?'
-                            ], 
-                            ans: 1 
-                        }
+                        { q: `Apa fungsi utama dari ${topic} dalam konteks regulasi sosial menurut materi di atas?`, opt: ['Hanya untuk membatasi kebebasan individu', 'Sebagai alat pengendali untuk mencegah kekacauan (chaos)', 'Untuk kepentingan penguasa semata', 'Tidak memiliki fungsi yang jelas'], ans: 1 },
+                        { q: `Manakah tantangan kontemporer yang dihadapi oleh ${topic} di era digital?`, opt: ['Kurangnya sumber daya manusia', 'Mahalnya biaya pendidikan', 'Distorsi informasi akibat hoaks dan misinformasi', 'Kelebihan pasokan tenaga kerja'], ans: 2 },
+                        { q: `Dalam aspek filosofis, pertanyaan mendasar apa yang berkaitan dengan ${topic}?`, opt: ['Berapa biaya yang dibutuhkan?', 'Apa hakikat dasar dan tujuan eksistensinya?', 'Siapa tokoh yang menemukannya?', 'Kapan pertama kali istilah ini muncul?'], ans: 1 }
                     ];
-
                     try {
-                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'modules'), {
-                            title: `Modul Akademik: ${topic}`,
-                            kelas: 'X', // Default
-                            durasi: '90', // Durasi lebih panjang karena materi mendalam
-                            konten: generatedContent,
-                            questions: generatedQuestions,
-                            createdAt: new Date().toISOString()
-                        });
-                        showNotif("Materi Akademik Berhasil Disusun AI!", "success");
-                        setAiPrompt('');
-                        setTeacherTab('modul');
-                    } catch(e) {
-                        showNotif("Gagal generate materi.", "error");
-                    }
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'modules'), { title: `Modul Akademik: ${topic}`, kelas: 'X', durasi: '90', konten: generatedContent, questions: generatedQuestions, createdAt: new Date().toISOString() });
+                        showNotif("Materi Akademik Berhasil Disusun AI!", "success"); setAiPrompt(''); setTeacherTab('modul');
+                    } catch(e) { showNotif("Gagal generate materi.", "error"); }
                     setIsGenerating(false);
-                }, 9000); // Waktu loading 9 detik agar terasa sangat "berpikir"
+                }, 9000); 
             };
 
             if (loadingState) { if (loadingTooLong) return <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-600 p-4 font-sans text-center fade-in"><RefreshCw size={48} className="mb-4"/><h2 className="text-xl font-bold">Koneksi Lambat</h2><button onClick={()=>window.location.reload()} className="px-6 py-2 bg-slate-800 text-white rounded-full mt-4">Muat Ulang</button></div>; return null; }
@@ -515,7 +554,6 @@ Pemahaman terhadap **${topic}** tidak boleh berhenti di hafalan definisi. Ia men
                         <div className="bg-white p-8 rounded-3xl w-full max-w-md shadow-2xl relative overflow-hidden fade-in">
                             <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-500 to-white"></div>
                             
-                            {/* --- ICON GAGAH (SHIELD) --- */}
                             <div className="flex justify-center mb-6">
                                 <div className="p-4 bg-red-50 rounded-full">
                                     <Shield size={64} className="text-red-600 drop-shadow-md" />
@@ -531,7 +569,9 @@ Pemahaman terhadap **${topic}** tidak boleh berhenti di hafalan definisi. Ia men
                                 {authMode === 'siswa' ? <div className="grid grid-cols-2 gap-3"><select value={form.kelas} onChange={e=>setForm({...form,kelas:e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl"><option>X</option><option>XI</option><option>XII</option></select><select value={form.jurusan} onChange={e=>setForm({...form,jurusan:e.target.value})} className="w-full p-3 bg-slate-50 border rounded-xl"><option>ULP</option><option>PF</option><option>TF</option></select></div> : <input type="password" value={form.teacherCode} onChange={e=>setForm({...form,teacherCode:e.target.value})} placeholder="Kode Guru" className="w-full p-3 bg-slate-50 border rounded-xl" />}</>}
                                 <input value={form.username} onChange={e=>setForm({...form,username:e.target.value})} placeholder="Username" className="w-full p-3 bg-slate-50 border rounded-xl" />
                                 <input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="Password" className="w-full p-3 bg-slate-50 border rounded-xl" />
-                                <button onClick={view==='login'?handleLogin:handleRegister} className="w-full bg-slate-600 text-white py-4 rounded-xl font-bold hover:bg-slate-700 shadow-lg">{view==='login'?'Masuk':'Daftar'}</button>
+                                <button onClick={view==='login'?handleLogin:handleRegister} disabled={isSubmitting} className="w-full bg-slate-600 text-white py-4 rounded-xl font-bold hover:bg-slate-700 shadow-lg flex justify-center items-center gap-2">
+                                    {isSubmitting ? <><Loader2 size={20} className="animate-spin"/> Memproses...</> : (view==='login'?'Masuk':'Daftar')}
+                                </button>
                             </div>
                             <p className="text-center mt-6 text-sm text-slate-400">{view==='login'?'Belum punya akun?':'Sudah punya akun?'} <span onClick={()=>setView(view==='login'?'register':'login')} className="text-red-600 font-bold cursor-pointer">{view==='login'?'Daftar':'Login'}</span></p>
                             <div className="mt-8 pt-6 border-t border-slate-100 text-center text-xs text-slate-400"><p>Dikembangkan Oleh:</p><p className="font-bold text-slate-500">Mohamad Dezan Hadiansyah, S.H., Gr.</p><p>Guru Pendidikan Pancasila SMK Al-Wafa</p></div>
@@ -564,7 +604,7 @@ Pemahaman terhadap **${topic}** tidak boleh berhenti di hafalan definisi. Ia men
                         )}
 
                         {teacherTab === 'menu' && (
-                            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 animate-fadeIn">
+                            <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 animate-fadeIn">
                                 <div onClick={() => setTeacherTab('modul')} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-blue-500 cursor-pointer transition-all group">
                                     <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center text-blue-600 mb-4 group-hover:scale-110 transition-transform"><Book size={28}/></div>
                                     <h3 className="text-xl font-bold text-slate-700 mb-2">Modul Ajar</h3><p className="text-sm text-slate-400">Kelola materi.</p>
@@ -572,7 +612,7 @@ Pemahaman terhadap **${topic}** tidak boleh berhenti di hafalan definisi. Ia men
                                 <div onClick={() => setTeacherTab('ai-generator')} className="bg-gradient-to-br from-purple-50 to-indigo-50 p-6 rounded-2xl border border-purple-200 shadow-sm hover:shadow-xl hover:border-purple-500 cursor-pointer transition-all group relative overflow-hidden">
                                     <div className="absolute top-0 right-0 w-24 h-24 bg-purple-200 rounded-full blur-3xl opacity-20 -mr-10 -mt-10"></div>
                                     <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center text-purple-600 mb-4 group-hover:scale-110 transition-transform"><Sparkles size={28}/></div>
-                                    <h3 className="text-xl font-bold text-slate-700 mb-2">Asisten AI</h3><p className="text-sm text-slate-500">Buat materi & kuis otomatis.</p>
+                                    <h3 className="text-xl font-bold text-slate-700 mb-2">Asisten AI</h3><p className="text-sm text-slate-500">Buat materi otomatis.</p>
                                 </div>
                                 <div onClick={() => setTeacherTab('siswa')} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-orange-500 cursor-pointer transition-all group">
                                     <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center text-orange-600 mb-4 group-hover:scale-110 transition-transform"><Users size={28}/></div>
@@ -581,6 +621,10 @@ Pemahaman terhadap **${topic}** tidak boleh berhenti di hafalan definisi. Ia men
                                 <div onClick={() => setTeacherTab('rekap')} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-green-500 cursor-pointer transition-all group">
                                     <div className="w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center text-green-600 mb-4 group-hover:scale-110 transition-transform"><ClipboardList size={28}/></div>
                                     <h3 className="text-xl font-bold text-slate-700 mb-2">Rekap Nilai</h3><p className="text-sm text-slate-400">Analisis data.</p>
+                                </div>
+                                <div onClick={() => setTeacherTab('jurnal')} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-pink-500 cursor-pointer transition-all group">
+                                    <div className="w-14 h-14 bg-pink-100 rounded-2xl flex items-center justify-center text-pink-600 mb-4 group-hover:scale-110 transition-transform"><NotebookPen size={28}/></div>
+                                    <h3 className="text-xl font-bold text-slate-700 mb-2">Jurnal Guru</h3><p className="text-sm text-slate-400">Catatan mengajar.</p>
                                 </div>
                             </div>
                         )}
@@ -661,34 +705,92 @@ Pemahaman terhadap **${topic}** tidak boleh berhenti di hafalan definisi. Ia men
                                 </div>
                         <div className="space-y-2">{filteredStudents.map(s=><div key={s.id} className="bg-white p-3 border rounded-lg flex justify-between items-center"><div><div className="font-bold">{s.name}</div><div className="text-xs text-slate-500">{s.kelas} {s.jurusan} | @{s.username}</div></div><div className="flex gap-2"><button onClick={()=>openEditStudentModal(s)} className="p-2 bg-blue-50 text-blue-600 rounded"><Edit size={14}/></button><button onClick={()=>handleResetPassword(s.id)} className="p-2 bg-yellow-50 text-yellow-600 rounded"><Key size={14}/></button><button onClick={()=>handleDeleteSiswa(s.id)} className="p-2 bg-red-50 text-red-600 rounded"><Trash2 size={14}/></button></div></div>)}</div></div>}
                         
-                        {teacherTab === 'rekap' && <div className="animate-fadeIn"><button onClick={()=>setTeacherTab('menu')} className="mb-4 flex gap-2 font-bold text-slate-400 hover:text-slate-600"><ChevronLeft/> Kembali</button><div className="flex justify-between mb-4"><h3 className="text-xl font-bold text-slate-700">Rekap Nilai</h3><button onClick={handleDownloadCSV} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-bold flex gap-2"><Download size={16}/> CSV</button></div>
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 mb-4 flex flex-col md:flex-row gap-3 shadow-sm">
-                                    <div className="flex-1 relative">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18}/>
-                                        <input type="text" placeholder="Cari nama siswa..." className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                        {teacherTab === 'rekap' && <div className="animate-fadeIn"><button onClick={()=>setTeacherTab('menu')} className="mb-4 flex gap-2 font-bold text-slate-400 hover:text-slate-600"><ChevronLeft/> Kembali</button><div className="flex justify-between mb-4"><h3 className="text-xl font-bold text-slate-700">Rekap Nilai</h3><button onClick={handleDownloadCSV} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-bold flex gap-2"><Download size={16}/> CSV</button></div><div className="space-y-2">{filteredStudents.map(s=><div key={s.id} className="bg-white p-4 border rounded-xl flex justify-between items-center"><div><div className="font-bold">{s.name}</div><div className="text-xs text-slate-500">{s.kelas} {s.jurusan}</div></div><div className="flex items-center gap-4"><div className="text-right"><div className="text-[10px] uppercase text-slate-400 font-bold">Rata-rata</div><div className="font-bold text-lg">{s.scores?Math.round(Object.values(s.scores).reduce((a,b)=>a+b,0)/Object.values(s.scores).length):'-'}</div></div><button onClick={()=>{setSelectedStudent(s);setView('studentDetail')}} className="p-2 bg-slate-100 rounded-full"><Eye size={18}/></button></div></div>)}</div></div>}
+                        
+                        {/* JURNAL VIEW (NEW) */}
+                        {teacherTab === 'jurnal' && (
+                            <div className="animate-fadeIn">
+                                <button onClick={()=>setTeacherTab('menu')} className="mb-4 flex gap-2 font-bold text-slate-400 hover:text-slate-600"><ChevronLeft/> Kembali ke Menu</button>
+                                <div className="grid md:grid-cols-3 gap-6">
+                                    {/* Form Jurnal */}
+                                    <div className="bg-white p-6 rounded-3xl border shadow-lg h-fit">
+                                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-pink-600"><NotebookPen size={20}/> Tulis Jurnal Baru</h3>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Tanggal</label>
+                                                <input type="date" className="w-full p-2 border rounded-xl bg-slate-50" value={journalForm.date} onChange={e=>setJournalForm({...journalForm, date: e.target.value})} />
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Kelas</label>
+                                                    <select className="w-full p-2 border rounded-xl bg-slate-50" value={journalForm.kelas} onChange={e=>setJournalForm({...journalForm, kelas: e.target.value})}>
+                                                        <option>X</option><option>XI</option><option>XII</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Jurusan</label>
+                                                    <select className="w-full p-2 border rounded-xl bg-slate-50" value={journalForm.jurusan} onChange={e=>setJournalForm({...journalForm, jurusan: e.target.value})}>
+                                                        <option>ULP</option><option>PF</option><option>TF</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Materi / Topik</label>
+                                                <input className="w-full p-2 border rounded-xl bg-slate-50" placeholder="Cth: Demokrasi" value={journalForm.topic} onChange={e=>setJournalForm({...journalForm, topic: e.target.value})} />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Catatan / Refleksi</label>
+                                                <textarea className="w-full p-2 border rounded-xl bg-slate-50 h-32" placeholder="Catatan perkembangan siswa..." value={journalForm.notes} onChange={e=>setJournalForm({...journalForm, notes: e.target.value})}></textarea>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Foto Dokumentasi (Opsional)</label>
+                                                <div className="flex items-center gap-2">
+                                                    <label className="cursor-pointer bg-slate-100 text-slate-600 px-3 py-2 rounded-xl border border-slate-200 text-sm font-bold flex items-center gap-2 hover:bg-slate-200">
+                                                        <Upload size={16}/> Pilih Foto
+                                                        <input type="file" accept="image/*" className="hidden" onChange={handleJournalImageChange} />
+                                                    </label>
+                                                    {journalForm.image && <span className="text-xs text-green-600 font-bold">Foto terpilih!</span>}
+                                                </div>
+                                                {journalForm.image && <img src={journalForm.image} className="mt-2 h-20 w-auto rounded-lg border object-cover" />}
+                                            </div>
+                                            <button onClick={handleSaveJournal} className="w-full bg-pink-600 text-white p-3 rounded-xl font-bold hover:bg-pink-700 shadow-md">Simpan Jurnal</button>
+                                        </div>
                                     </div>
-                                    <div className="flex gap-2 w-full md:w-auto">
-                                        <div className="relative w-full md:w-32">
-                                            <select className="w-full pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 appearance-none font-bold text-slate-600" value={filterClass} onChange={(e) => setFilterClass(e.target.value)}>
-                                                <option value="Semua">Semua Kelas</option>
-                                                <option value="X">Kelas X</option>
-                                                <option value="XI">Kelas XI</option>
-                                                <option value="XII">Kelas XII</option>
-                                            </select>
-                                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                                    
+                                    {/* List Jurnal */}
+                                    <div className="md:col-span-2 space-y-4">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h3 className="font-bold text-xl text-slate-700">Riwayat Jurnal</h3>
+                                            <button onClick={handleExportJournal} className="bg-white border border-slate-300 text-slate-600 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-slate-50 shadow-sm">
+                                                <Printer size={16}/> Cetak / PDF
+                                            </button>
                                         </div>
-                                        <div className="relative w-full md:w-32">
-                                            <select className="w-full pl-3 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 appearance-none font-bold text-slate-600" value={filterJurusan} onChange={(e) => setFilterJurusan(e.target.value)}>
-                                                <option value="Semua">Semua Jurusan</option>
-                                                <option value="ULP">ULP</option>
-                                                <option value="PF">PF</option>
-                                                <option value="TF">TF</option>
-                                            </select>
-                                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
-                                        </div>
+                                        {journals.length === 0 ? (
+                                            <div className="text-center py-12 bg-slate-50 rounded-2xl border border-dashed text-slate-400 italic">Belum ada catatan jurnal.</div>
+                                        ) : (
+                                            journals.sort((a,b) => new Date(b.date) - new Date(a.date)).map(j => (
+                                                <div key={j.id} className="bg-white p-5 rounded-2xl border shadow-sm hover:shadow-md transition-shadow relative group">
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="bg-pink-100 text-pink-600 text-xs font-bold px-2 py-1 rounded-md flex items-center gap-1"><Calendar size={12}/> {j.date}</span>
+                                                            <span className="bg-slate-100 text-slate-500 text-xs font-bold px-2 py-1 rounded-md">Kelas {j.kelas} {j.jurusan || ''}</span>
+                                                        </div>
+                                                        <button onClick={()=>handleDeleteJournal(j.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
+                                                    </div>
+                                                    <div className="flex gap-4">
+                                                        <div className="flex-1">
+                                                            <h4 className="font-bold text-lg text-slate-800 mb-1">{j.topic}</h4>
+                                                            <p className="text-slate-600 text-sm whitespace-pre-wrap">{j.notes}</p>
+                                                        </div>
+                                                        {j.image && <img src={j.image} className="w-24 h-24 object-cover rounded-lg border flex-shrink-0" />}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
                                     </div>
                                 </div>
-                        <div className="space-y-2">{filteredStudents.map(s=><div key={s.id} className="bg-white p-4 border rounded-xl flex justify-between items-center"><div><div className="font-bold">{s.name}</div><div className="text-xs text-slate-500">{s.kelas} {s.jurusan}</div></div><div className="flex items-center gap-4"><div className="text-right"><div className="text-[10px] uppercase text-slate-400 font-bold">Rata-rata</div><div className="font-bold text-lg">{s.scores?Math.round(Object.values(s.scores).reduce((a,b)=>a+b,0)/Object.values(s.scores).length):'-'}</div></div><button onClick={()=>{setSelectedStudent(s);setView('studentDetail')}} className="p-2 bg-slate-100 rounded-full"><Eye size={18}/></button></div></div>)}</div></div>}
+                            </div>
+                        )}
 
                         {/* MODAL SISWA (Sama) */}
                         {studentModalOpen && <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn"><div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6"><div className="flex justify-between mb-4"><h3 className="font-bold text-lg">Kelola Siswa</h3><button onClick={()=>setStudentModalOpen(false)}><X/></button></div><div className="space-y-3"><input className="w-full p-2 border rounded" placeholder="Nama" value={studentForm.name} onChange={e=>setStudentForm({...studentForm,name:e.target.value})}/><input className="w-full p-2 border rounded" placeholder="Username" value={studentForm.username} onChange={e=>setStudentForm({...studentForm,username:e.target.value})}/>{!editingStudentId && <input className="w-full p-2 border rounded" placeholder="Password (Default 123)" value={studentForm.password} onChange={e=>setStudentForm({...studentForm,password:e.target.value})}/>}<div className="flex gap-2"><select className="w-full p-2 border rounded" value={studentForm.kelas} onChange={e=>setStudentForm({...studentForm,kelas:e.target.value})}><option>X</option><option>XI</option><option>XII</option></select><select className="w-full p-2 border rounded" value={studentForm.jurusan} onChange={e=>setStudentForm({...studentForm,jurusan:e.target.value})}><option>ULP</option><option>PF</option><option>TF</option></select></div><button onClick={handleSaveStudent} className="w-full bg-orange-600 text-white p-3 rounded font-bold">Simpan</button></div></div></div>}
@@ -833,59 +935,7 @@ Pemahaman terhadap **${topic}** tidak boleh berhenti di hafalan definisi. Ia men
                 </Layout>
             );
 
-            // --- FITUR 3: DETAIL SISWA (RAPOR MINI) ---
-            if (view === 'studentDetail' && selectedStudent) {
-                const avgScore = selectedStudent.scores && Object.values(selectedStudent.scores).length > 0 
-                    ? Math.round(Object.values(selectedStudent.scores).reduce((a,b)=>a+b,0)/Object.values(selectedStudent.scores).length) 
-                    : 0;
-
-                return (
-                    <Layout notification={notification} userData={userData} handleLogout={handleLogout}>
-                        <button onClick={() => setView('dashboard')} className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 mb-6 transition-colors">
-                            <ChevronLeft size={20}/> Kembali ke Dashboard
-                        </button>
-
-                        <div className="bg-white rounded-3xl overflow-hidden shadow-xl border border-slate-100 max-w-2xl mx-auto">
-                            <div className="bg-slate-600 text-white p-8">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center text-2xl font-bold">
-                                        {selectedStudent.name.charAt(0)}
-                                    </div>
-                                    <div>
-                                        <h2 className="text-2xl font-bold">{selectedStudent.name}</h2>
-                                        <p className="opacity-80 font-medium">Kelas {selectedStudent.kelas} - {selectedStudent.jurusan}</p>
-                                    </div>
-                                    <div className="ml-auto text-center">
-                                        <div className="text-xs uppercase opacity-70 font-bold">Rata-Rata</div>
-                                        <div className="text-4xl font-black">{avgScore}</div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div className="p-8">
-                                <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-slate-700"><FileText className="text-red-600"/> Rincian Nilai Per Modul</h3>
-                                <div className="space-y-3">
-                                    {selectedStudent.scores ? Object.entries(selectedStudent.scores).map(([modId, score]) => {
-                                        // Cari judul modul berdasarkan ID
-                                        const modTitle = modules.find(m => m.id === modId)?.title || "Modul Tidak Dikenal ("+modId+")";
-                                        return (
-                                            <div key={modId} className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
-                                                <div className="font-bold text-slate-600">{modTitle}</div>
-                                                <div className={`font-black text-lg ${score >= 75 ? 'text-green-600' : 'text-red-500'}`}>{score}</div>
-                                            </div>
-                                        );
-                                    }) : <p className="text-slate-400 italic">Belum ada nilai yang terekam.</p>}
-                                    
-                                    {selectedStudent.scores && Object.keys(selectedStudent.scores).length === 0 && (
-                                        <p className="text-slate-400 italic">Siswa ini belum mengerjakan kuis apapun.</p>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </Layout>
-                );
-            }
-            return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-400 font-bold">Memuat Aplikasi...</div>;
+            return null;
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
